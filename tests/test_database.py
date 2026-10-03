@@ -64,6 +64,20 @@ class Database(unittest.TestCase):
   self.assertEqual(sorted(p.name for p in output.iterdir()),['catalog.json','tags.json'])
   item=json.loads((output/'catalog.json').read_text())['plugins'][0]
   self.assertEqual(item['url'],URL);self.assertEqual(item['sha256'],hashlib.sha256(data).hexdigest());self.assertEqual(item['icon'],'https://example.org/icon.png');self.assertEqual(item['runAs'],'framely');self.assertIn('notifications',report.read_text());self.assertNotIn('publicKey',item)
+ def test_single_icon_config_emits_verified_immutable_repository_url(self):
+  manifest=self.manifest();manifest.pop('publish');manifest['icon']='art/icon.png'
+  entry=self.register(manifest)
+  import struct
+  image=b'\x89PNG\r\n\x1a\n'+b'\0\0\0\rIHDR'+struct.pack('>II',256,256)
+  data=self.package(manifest,{'page.js':b'page','backend.py':b'backend','art/icon.png':image})
+  expected='https://raw.githubusercontent.com/example/plugin/'+entry['commit']+'/art/icon.png'
+  output=pathlib.Path(self.temp.name)/'icon'
+  with patch.object(db,'release_sha256',return_value=hashlib.sha256(data).hexdigest()),patch.object(db,'download',side_effect=lambda url,**kwargs:data if url==URL else image) as download:
+   db.build(self.root,output)
+  self.assertEqual(json.loads((output/'catalog.json').read_text())['plugins'][0]['icon'],expected)
+  download.assert_any_call(expected,limit=1024*1024)
+  with patch.object(db,'download',return_value=b'wrong'),self.assertRaises(ValueError):db.store_icon(entry,{'art/icon.png':image})
+  with patch.object(db,'download',side_effect=urllib.error.HTTPError(expected,404,'Missing',None,None)),self.assertRaises(urllib.error.HTTPError):db.store_icon(entry,{'art/icon.png':image})
  def test_package_identity_permissions_and_all_metadata_must_match_source(self):
   entry=self.register()
   for change in ({'id':'other.plugin'},{'version':'2.0.0'},{'permissions':['network']},{'backend':{'entry':'backend.py','runAs':'root'}},{'downloadUrl':'https://example.org/other.framely'},{'name':'Other'}):

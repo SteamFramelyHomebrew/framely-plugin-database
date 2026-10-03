@@ -269,6 +269,18 @@ def write_tags(catalogs,output):
                 text(tag,80,'tag',True);tags.add(tag)
     pathlib.Path(output).write_text(json.dumps({'schemaVersion':1,'tags':sorted(tags)},ensure_ascii=False,indent=2)+'\n')
 
+def store_icon(entry,files):
+    icon=entry['manifest'].get('icon')
+    if not icon:
+        return (entry['manifest'].get('publish') or {}).get('icon')
+    safe_path(icon)
+    match=re.fullmatch(r'https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?',entry['repository'])
+    require(match is not None,'Store icon requires a GitHub repository')
+    require(re.fullmatch(r'[0-9a-f]{40}',entry['commit']) is not None,'Invalid icon source commit')
+    url='https://raw.githubusercontent.com/'+match.group(1)+'/'+entry['commit']+'/'+urllib.parse.quote(icon,safe='/')
+    require(download(url,limit=1024*1024)==files[icon],'Repository icon differs from verified package icon')
+    return url
+
 def build(root,output,name='Framely Plugins',previous=None,report=None):
     root=pathlib.Path(root).resolve();output=pathlib.Path(output).absolute();require(not output.exists(),'Output directory already exists');require(root not in output.parents and root!=output,'Output must be outside source checkout')
     entries=registrations(root);history=[] if previous is None else object_json(pathlib.Path(previous).read_bytes())['plugins'];old={};seen=set()
@@ -280,10 +292,11 @@ def build(root,output,name='Framely Plugins',previous=None,report=None):
         for entry in entries:
             manifest,files,digest=verified_download(entry);prior=old.get(entry['id'])
             require(all(item['id']!=entry['id'] or item['version']!=entry['version'] or item['sha256']==digest for item in history),'Published version changed: '+entry['id'])
+            published=next((p for p in history if p['id']==entry['id'] and p['version']==entry['version']),None)
             item={key:manifest.get(key,default) for key,default in [('id',''),('name',''),('version',''),('description',''),('author',''),('authorUrl',None),('documentationUrl',None),('homepage',None),('apiVersion',1),('details',''),('tags',[]),('changelog','')]}
             for field in ('dependencies','optionalDependencies','conflicts','exclusiveResources'):item[field]=metadata(manifest)[field]
             publish=manifest.get('publish') or {}
-            item.update(url=entry['packageUrl'],sha256=digest,icon=publish.get('icon'),screenshots=publish.get('screenshots',[]),runAs=metadata(manifest)['backend']['runAs'] if manifest.get('backend') else (manifest.get('lifecycle') or {}).get('runAs'),permissions=manifest.get('permissions',[]))
+            item.update(url=entry['packageUrl'],sha256=digest,icon=published.get('icon') if published is not None else store_icon(entry,files),screenshots=publish.get('screenshots',[]),runAs=metadata(manifest)['backend']['runAs'] if manifest.get('backend') else (manifest.get('lifecycle') or {}).get('runAs'),permissions=manifest.get('permissions',[]))
             catalog.append(item)
             archived=[p for p in history if p['id']==item['id'] and p['version']!=item['version']]
             catalog.extend(archived[:19])
