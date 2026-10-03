@@ -16,6 +16,8 @@
 
 `publish` 是自动生成分支，向它提交的 PR 会自动关闭。插件变更请提交到 `testing` 或 `main`；合并后自动更新两个渠道的清单。
 
+自动合并只允许来源与目标分支同名：`testing → testing`、`main → main`。跨渠道或其他来源分支的 PR 留给人工处理；校验时和实际合并前均检查此限制。
+
 ## 插件归属与自动合并
 
 插件 ID 必须使用 `namespace.name` 格式（小写字母和数字，名称可带点或连字符）；GitHub 仓库名称不限，submodule 路径必须为 `plugins/<插件ID>`。来源仓库须为公开 GitHub 仓库。

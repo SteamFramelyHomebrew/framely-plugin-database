@@ -10,6 +10,13 @@ spec.loader.exec_module(policy)
 
 
 class Policy(unittest.TestCase):
+    def test_only_matching_channel_branches_are_eligible(self):
+        for base in ('main', 'testing', 'publish', 'feature'):
+            for head in ('main', 'testing', 'publish', 'feature'):
+                with self.subTest(base=base, head=head):
+                    self.assertEqual(policy.eligible_branches(base, head),
+                                     base in ('main', 'testing') and head == base)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self.temp.name) / 'repo'

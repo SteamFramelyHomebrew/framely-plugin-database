@@ -18,19 +18,21 @@ const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 const execute = new AsyncFunction('github', 'context', 'core', SCRIPT);
 async function scenario(options = {}) {
   let merged = 0;
+  const target = options.target || 'testing';
+  const refs = {main: 'main', testing: 'testing', publish: 'publish', [target]: 'base'};
   process.env.VALIDATED_HEAD = 'head'; process.env.VALIDATED_BASE = 'base';
-  process.env.TARGET_BRANCH = 'testing'; process.env.PLUGIN_OWNERSHIP_TOKEN = '';
-  process.env.VALIDATED_REFS = JSON.stringify({main: 'main', testing: 'base', publish: 'publish'});
+  process.env.TARGET_BRANCH = target; process.env.PLUGIN_OWNERSHIP_TOKEN = '';
+  process.env.VALIDATED_REFS = JSON.stringify(refs);
   process.env.VALIDATED_REPOSITORIES = JSON.stringify([
     {repository: 'alice/one', repositoryId: 1, ownerId: 10},
     {repository: 'org/two', repositoryId: 2, ownerId: 20}
   ]);
   const github = {rest: {
     pulls: {get: async () => ({data: {number: 1, state: 'open', draft: false,
-      base: {ref: 'testing', sha: 'base'}, head: {sha: 'head'}, user: {id: 10, login: 'alice'}}}),
+      base: {ref: target, sha: 'base'}, head: {ref: options.headRef || target, sha: 'head'}, user: {id: 10, login: 'alice'}}}),
       merge: async () => {merged++; return {data: {merged: true}};}},
     repos: {getBranch: async ({branch}) => ({data: {commit: {sha:
-      options.stale && branch === 'main' ? 'changed' : {main:'main', testing:'base', publish:'publish'}[branch]}}})}
+      options.stale && branch === 'main' ? 'changed' : refs[branch]}}})}
   }, request: async (route, {owner}) => {
     if (route.includes('collaborators')) {
       if (options.apiFailure) {const error = new Error('403'); error.status = 403; throw error;}
@@ -48,6 +50,10 @@ async function scenario(options = {}) {
 }
 (async () => {
   assert.deepEqual(await scenario(), {merged:1, failed:false});
+  assert.deepEqual(await scenario({target:'main'}), {merged:1, failed:false});
+  for (const [target, headRef] of [['main','testing'], ['testing','main'], ['testing','feature'], ['main','feature'], ['publish','publish']]) {
+    assert.deepEqual(await scenario({target, headRef}), {merged:0, failed:false}, `${headRef} -> ${target}`);
+  }
   for (const key of ['noPermission','apiFailure','transfer','replaced','stale']) {
     assert.deepEqual(await scenario({[key]:true}), {merged:0, failed:true}, key);
   }
