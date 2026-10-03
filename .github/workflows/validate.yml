@@ -1,0 +1,36 @@
+name: Validate plugin releases
+on:
+  pull_request:
+    branches: [main, testing]
+  push:
+    branches: [main, testing]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+      - name: Test publishing tools
+        run: python3 -m unittest discover -s tests -v
+      - name: Fetch pinned manifests
+        run: python3 scripts/database.py fetch
+      - name: Validate packages and summarize changes
+        env:
+          TARGET_BRANCH: ${{ github.base_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          channel=testing
+          if [[ $TARGET_BRANCH == main ]]; then channel=stable; fi
+          if git show-ref --verify --quiet refs/remotes/origin/publish; then
+            git show "origin/publish:$channel/catalog.json" > "$RUNNER_TEMP/previous.json"
+          else
+            printf '%s\n' '{"schemaVersion":1,"plugins":[]}' > "$RUNNER_TEMP/previous.json"
+          fi
+          python3 scripts/database.py build --output "$RUNNER_TEMP/validated-catalog" --previous-catalog "$RUNNER_TEMP/previous.json" --report "$RUNNER_TEMP/changes.md"
+          cat "$RUNNER_TEMP/changes.md" >> "$GITHUB_STEP_SUMMARY"

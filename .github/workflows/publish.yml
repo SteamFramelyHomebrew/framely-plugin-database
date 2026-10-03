@@ -1,0 +1,80 @@
+name: Publish plugin catalogs
+on:
+  push:
+    branches: [main, testing]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: framely-publish
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+      - name: Test publishing tools
+        run: python3 -m unittest discover -s tests -v
+      - name: Generate both channel catalogs
+        run: |
+          set -euo pipefail
+          destination="$RUNNER_TEMP/framely-catalogs"
+          mkdir -p "$destination"
+          for channel in stable testing; do
+            ref=origin/main
+            if [[ $channel == testing ]] && git show-ref --verify --quiet refs/remotes/origin/testing; then ref=origin/testing; fi
+            checkout="$RUNNER_TEMP/database-$channel"
+            git worktree add --detach "$checkout" "$ref"
+            python3 scripts/database.py fetch --root "$checkout"
+            if git show-ref --verify --quiet refs/remotes/origin/publish; then
+              git show "origin/publish:$channel/catalog.json" > "$RUNNER_TEMP/previous-$channel.json"
+            else
+              printf '%s\n' '{"schemaVersion":1,"plugins":[]}' > "$RUNNER_TEMP/previous-$channel.json"
+            fi
+            python3 scripts/database.py build --root "$checkout" --output "$destination/$channel" --name "Framely Plugins · $channel" --previous-catalog "$RUNNER_TEMP/previous-$channel.json" --report "$RUNNER_TEMP/changes-$channel.md"
+            cat "$RUNNER_TEMP/changes-$channel.md" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalogs
+          path: ${{ runner.temp }}/framely-catalogs
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: catalogs
+          path: ${{ runner.temp }}/framely-catalogs
+      - name: Commit catalogs to publish branch
+        run: |
+          set -euo pipefail
+          if git show-ref --verify --quiet refs/remotes/origin/publish; then
+            git switch --create publish --track origin/publish
+          else
+            git switch --orphan publish
+          fi
+          mkdir -p stable testing
+          cp "$RUNNER_TEMP/framely-catalogs/stable/catalog.json" stable/catalog.json
+          cp "$RUNNER_TEMP/framely-catalogs/testing/catalog.json" testing/catalog.json
+          git add stable/catalog.json testing/catalog.json
+          if git diff --cached --quiet; then
+            echo 'Catalogs are unchanged.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Update plugin catalogs'
+          git push origin HEAD:publish
