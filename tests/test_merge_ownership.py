@@ -30,7 +30,11 @@ async function scenario(options = {}) {
   const github = {rest: {
     pulls: {get: async () => ({data: {number: 1, state: 'open', draft: false,
       base: {ref: target, sha: 'base'}, head: {ref: options.headRef || target, sha: 'head'}, user: {id: 10, login: 'alice'}}}),
-      merge: async () => {merged++; return {data: {merged: true}};}},
+      merge: async (request) => {
+        assert.equal(request.merge_method, 'merge');
+        assert.equal(request.sha, process.env.VALIDATED_HEAD);
+        merged++; return {data: {merged: true}};
+      }},
     repos: {getBranch: async ({branch}) => ({data: {commit: {sha:
       options.stale && branch === 'main' ? 'changed' : refs[branch]}}})}
   }, request: async (route, {owner}) => {

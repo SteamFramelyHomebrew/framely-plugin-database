@@ -151,7 +151,7 @@ jobs:
             }
             const {data: result} = await github.rest.pulls.merge({
               ...context.repo, pull_number: pr.number,
-              sha: process.env.VALIDATED_HEAD, merge_method: 'squash'
+              sha: process.env.VALIDATED_HEAD, merge_method: 'merge'
             });
             if (!result.merged) throw new Error(result.message);
             core.setOutput('merged', 'true');
