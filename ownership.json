@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "namespaces": {
+    "tooru": 68683363
+  },
+  "plugins": {
+    "tooru.passthrough-color": {
+      "repository": "toorux/framely-plugin-passthrough-color",
+      "repositoryId": 1402700560,
+      "ownerId": 68683363
+    }
+  }
+}
