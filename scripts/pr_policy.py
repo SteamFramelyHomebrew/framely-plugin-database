@@ -10,6 +10,10 @@ def git(root, *args):
     return subprocess.check_output(['git', '-C', str(root), *args])
 
 
+def eligible_branches(base, head):
+    return base in ('main', 'testing') and head == base
+
+
 def eligible(root, base, head):
     records = git(root, 'diff', '--raw', '--no-abbrev', '--no-renames', '-z', base + '...' + head).split(b'\0')
     records = [record for record in records if record]
@@ -47,7 +51,7 @@ def main():
     base, head = pr['base']['sha'], pr['head']['sha']
     subprocess.run(['git', 'fetch', 'origin', 'refs/pull/' + str(int(pr['number'])) + '/head'], check=True)
     fetched = git(root, 'rev-parse', 'FETCH_HEAD').decode().strip()
-    allowed = fetched == head and prepare(root, candidate, base, head)
+    allowed = eligible_branches(pr['base']['ref'], pr['head']['ref']) and fetched == head and prepare(root, candidate, base, head)
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write('allowed=' + str(allowed).lower() + '\n')
         output.write('head=' + head + '\nbase=' + base + '\n')
@@ -61,7 +65,7 @@ def main():
         output.write('refs=' + json.dumps(refs, separators=(',', ':')) + '\n')
     if not allowed:
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-            summary.write('PR 提交已变化或包含插件登记以外的文件，留给人工处理。\n')
+            summary.write('仅允许 main → main、testing → testing 自动合并；分支不同名、提交已变化或包含插件登记以外文件的 PR 留给人工处理。\n')
 
 
 if __name__ == '__main__':

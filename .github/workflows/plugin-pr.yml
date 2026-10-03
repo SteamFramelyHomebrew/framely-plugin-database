@@ -117,6 +117,7 @@ jobs:
             const {data: pr} = await github.rest.pulls.get({...context.repo, pull_number: context.issue.number});
             if (pr.state !== 'open' || pr.draft || pr.base.ref !== process.env.TARGET_BRANCH ||
                 !['main', 'testing'].includes(pr.base.ref) ||
+                pr.head.ref !== pr.base.ref ||
                 pr.head.sha !== process.env.VALIDATED_HEAD || pr.base.sha !== process.env.VALIDATED_BASE) {
               await core.summary.addRaw('PR 或目标分支已变化，未合并；请更新 PR 分支以重新触发校验。').write();
               return;
