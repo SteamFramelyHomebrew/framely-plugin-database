@@ -5,6 +5,38 @@
     {
       "id": "tooru.passthrough-color",
       "name": "透视调色",
+      "version": "0.1.4-preview.3",
+      "description": "调整 Steam Frame 黑白透视的色调、染色饱和度与亮度。",
+      "author": "tooru",
+      "authorUrl": null,
+      "documentationUrl": null,
+      "homepage": null,
+      "apiVersion": 1,
+      "details": "提供实时色调、饱和度与亮度滑块，中性黑白及冷暖色预设，自动保存和一键恢复。使用 Steam 会话用户权限；首次启用原生调色模块需在下次 SteamVR 启动后生效。不会自动重启 SteamVR。",
+      "tags": [
+        "透视",
+        "色调",
+        "黑白"
+      ],
+      "changelog": "修复数据库登记流程：只更新插件登记，不再自动同步数据库上游。",
+      "dependencies": {},
+      "optionalDependencies": {},
+      "conflicts": {
+        "framely.passthrough-color": "*"
+      },
+      "exclusiveResources": [
+        "steamvr.passthrough-color"
+      ],
+      "url": "https://github.com/toorux/framely-plugin-passthrough-color/releases/download/v0.1.4-preview.3/tooru.passthrough-color-0.1.4-preview.3.framely",
+      "sha256": "9a1bef89c97f8c06e962cc3ddfe8f49c52146c55d2f9def36fa64fe8c53c8cf4",
+      "icon": "https://raw.githubusercontent.com/toorux/framely-plugin-passthrough-color/47a9f1b7d2c2c75f846d1ecacd96234ddecd9852/icon.png",
+      "screenshots": [],
+      "runAs": "steamos",
+      "permissions": []
+    },
+    {
+      "id": "tooru.passthrough-color",
+      "name": "透视调色",
       "version": "0.1.4-preview.1",
       "description": "调整 Steam Frame 黑白透视的色调、染色饱和度与亮度。",
       "author": "tooru",
