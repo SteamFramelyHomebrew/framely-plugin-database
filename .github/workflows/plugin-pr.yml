@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: plugin-pr-${{ github.event.pull_request.number }}
+  group: plugin-registration
   cancel-in-progress: false
 jobs:
   reject-publish:
@@ -30,6 +30,8 @@ jobs:
       allowed: ${{ steps.policy.outputs.allowed }}
       head: ${{ steps.policy.outputs.head }}
       base: ${{ steps.policy.outputs.base }}
+      refs: ${{ steps.policy.outputs.refs }}
+      repositories: ${{ steps.ownership.outputs.repositories }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,10 +45,40 @@ jobs:
       - name: Test trusted validation tools
         if: steps.policy.outputs.allowed == 'true'
         run: python3 -m unittest discover -s tests -v
-      - name: Validate candidate with trusted tools
+      - name: Verify namespaces and PR author repository permissions
+        id: ownership
         if: steps.policy.outputs.allowed == 'true'
         env:
           TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
+          VALIDATED_BASE: ${{ steps.policy.outputs.base }}
+          PLUGIN_OWNERSHIP_TOKEN: ${{ secrets.PLUGIN_OWNERSHIP_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          base_checkout="$RUNNER_TEMP/ownership-base"
+          git worktree add --detach "$base_checkout" "$VALIDATED_BASE"
+          python3 scripts/database.py fetch --root "$base_checkout"
+          roots=("$base_checkout")
+          other=main
+          if [[ "$TARGET_BRANCH" == main ]]; then other=testing; fi
+          if git show-ref --verify --quiet "refs/remotes/origin/$other"; then
+            other_checkout="$RUNNER_TEMP/ownership-other"
+            git worktree add --detach "$other_checkout" "origin/$other"
+            python3 scripts/database.py fetch --root "$other_checkout"
+            roots+=("$other_checkout")
+          fi
+          previous=()
+          if git cat-file -e origin/publish:ownership.json 2>/dev/null; then
+            git show origin/publish:ownership.json > "$RUNNER_TEMP/ownership-previous.json"
+            previous=(--previous "$RUNNER_TEMP/ownership-previous.json")
+          fi
+          python3 scripts/database.py fetch --root "$RUNNER_TEMP/candidate"
+          python3 scripts/ownership.py check --roots "${roots[@]}" --candidate "$RUNNER_TEMP/candidate" "${previous[@]}"
+      - name: Download candidate packages and verify declared or Release SHA256
+        if: steps.policy.outputs.allowed == 'true'
+        env:
+          TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           channel=testing
@@ -73,8 +105,12 @@ jobs:
         id: merge
         env:
           VALIDATED_HEAD: ${{ needs.validate.outputs.head }}
+          VALIDATED_REFS: ${{ needs.validate.outputs.refs }}
+          VALIDATED_REPOSITORIES: ${{ needs.validate.outputs.repositories }}
+          PLUGIN_OWNERSHIP_TOKEN: ${{ secrets.PLUGIN_OWNERSHIP_TOKEN }}
           VALIDATED_BASE: ${{ needs.validate.outputs.base }}
           TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           script: |
             core.setOutput('merged', 'false');
@@ -84,6 +120,33 @@ jobs:
                 pr.head.sha !== process.env.VALIDATED_HEAD || pr.base.sha !== process.env.VALIDATED_BASE) {
               await core.summary.addRaw('PR 或目标分支已变化，未合并；请更新 PR 分支以重新触发校验。').write();
               return;
+            }
+            for (const [branch, sha] of Object.entries(JSON.parse(process.env.VALIDATED_REFS))) {
+              let actual = null;
+              try {
+                const {data: current} = await github.rest.repos.getBranch({...context.repo, branch});
+                actual = current.commit.sha;
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+              if (actual !== sha) {
+                throw new Error(`${branch} 已变化，需要重新校验插件归属。`);
+              }
+            }
+            for (const identity of JSON.parse(process.env.VALIDATED_REPOSITORIES)) {
+              const [owner, repo] = identity.repository.split('/');
+              const headers = process.env.PLUGIN_OWNERSHIP_TOKEN ? {authorization: `Bearer ${process.env.PLUGIN_OWNERSHIP_TOKEN}`} : {};
+              const {data: source} = await github.request('GET /repos/{owner}/{repo}', {owner, repo, headers});
+              if (source.id !== identity.repositoryId || source.owner.id !== identity.ownerId ||
+                  source.full_name.toLowerCase() !== identity.repository || source.private) {
+                throw new Error('插件仓库身份已变化，禁止转让或替换。');
+              }
+              if (source.owner.id !== pr.user.id) {
+                const {data: access} = await github.request('GET /repos/{owner}/{repo}/collaborators/{username}/permission', {owner, repo, username: pr.user.login, headers});
+                if (access.user.id !== pr.user.id || !['write', 'admin', 'maintain'].includes(access.permission)) {
+                  throw new Error('PR 作者不再具有插件仓库写权限。');
+                }
+              }
             }
             const {data: result} = await github.rest.pulls.merge({
               ...context.repo, pull_number: pr.number,
@@ -98,3 +161,5 @@ jobs:
     permissions:
       contents: write
     uses: ./.github/workflows/publish.yml
+    secrets:
+      PLUGIN_OWNERSHIP_TOKEN: ${{ secrets.PLUGIN_OWNERSHIP_TOKEN }}
