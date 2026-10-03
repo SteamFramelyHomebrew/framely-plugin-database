@@ -51,6 +51,14 @@ def main():
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write('allowed=' + str(allowed).lower() + '\n')
         output.write('head=' + head + '\nbase=' + base + '\n')
+        refs = {}
+        for branch in ('main', 'testing', 'publish'):
+            ref = 'refs/remotes/origin/' + branch
+            refs[branch] = None
+            if subprocess.run(['git', 'show-ref', '--verify', '--quiet', ref]).returncode == 0:
+                refs[branch] = git(root, 'rev-parse', ref).decode().strip()
+        refs[pr['base']['ref']] = base
+        output.write('refs=' + json.dumps(refs, separators=(',', ':')) + '\n')
     if not allowed:
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
             summary.write('PR 提交已变化或包含插件登记以外的文件，留给人工处理。\n')

@@ -32,7 +32,7 @@ def text(value,limit,label,nonempty=False):
 def fields(value,allowed,required):
     require(isinstance(value,dict) and set(value)<=set(allowed) and set(required)<=set(value),'Missing or unknown object fields')
 
-MANIFEST_FIELDS=('schemaVersion','apiVersion','id','name','version','description','author','icon','details','category','tags','screenshots','changelog','backend','lifecycle','ui','permissions','downloadUrl','publish','files')
+MANIFEST_FIELDS=('schemaVersion','apiVersion','id','name','version','description','author','authorUrl','documentationUrl','homepage','icon','details','category','tags','screenshots','changelog','backend','lifecycle','dependencies','optionalDependencies','conflicts','exclusiveResources','ui','permissions','downloadUrl','publish','files')
 
 def validate_lifecycle(manifest,hashed=None):
     backend=manifest.get('backend')
@@ -55,6 +55,30 @@ def validate_lifecycle(manifest,hashed=None):
         if hashed is not None:hashed(hook['entry'])
         args=hook.get('args',[]);require(isinstance(args,list) and len(args)<=64,'Invalid hook arguments')
         for arg in args:text(arg,4096,'hook argument');require('\0' not in arg,'NUL hook argument')
+
+SEMVER=re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?')
+def semver(value):
+    match=SEMVER.fullmatch(value);require(match is not None,'Relations require SemVer versions')
+    if match.group(4):
+        for part in match.group(4).split('.'):require(not part.isdigit() or len(part)==1 or not part.startswith('0'),'Invalid numeric prerelease')
+def version_range(value):
+    text(value,120,'version range',True)
+    parts=re.split(r'[,\s]+',value.strip());require(all(parts),'Invalid version range')
+    for part in parts:
+        require(re.fullmatch(r'(?:\^|~|>=|<=|>|<|=)?(?:\*|[0-9]+(?:\.(?:[0-9]+|\*|x|X)){0,2}(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)',part) is not None,'Invalid version range')
+def validate_relations(manifest):
+    required=manifest.get('dependencies',{});optional=manifest.get('optionalDependencies',{});conflicts=manifest.get('conflicts',{});resources=manifest.get('exclusiveResources',[])
+    require(isinstance(required,dict) and isinstance(optional,dict) and isinstance(conflicts,dict) and isinstance(resources,list),'Invalid relationships')
+    require(len(required)+len(optional)<=64 and len(conflicts)<=64 and len(resources)<=32,'Too many relationships')
+    if required or optional or conflicts or resources:semver(manifest['version'])
+    require(not set(required)&set(optional),'Duplicate required/optional dependency')
+    for target,dep in {**required,**optional}.items():
+        identifier(target);require(target!=manifest['id'] and target not in conflicts,'Self dependency or dependency/conflict contradiction')
+        if isinstance(dep,str):version_range(dep)
+        else:fields(dep,('version','source'),('version','source'));version_range(dep['version']);https(dep['source'])
+    for target,version in conflicts.items():identifier(target);require(target!=manifest['id'],'Self conflict');version_range(version)
+    require(all(isinstance(resource,str) for resource in resources) and len(set(resources))==len(resources),'Invalid exclusive resources')
+    for resource in resources:identifier(resource)
 
 def source_pins(root):
     root=pathlib.Path(root);modules=configparser.ConfigParser(interpolation=None)
@@ -93,20 +117,28 @@ def registrations(root):
         size=int(subprocess.check_output(['git','-C',str(source),'cat-file','-s',spec]))
         require(size<=256*1024,'Manifest too large')
         manifest=object_json(subprocess.check_output(['git','-C',str(source),'show',spec]))
-        fields(manifest,MANIFEST_FIELDS,('schemaVersion','apiVersion','id','name','version','author','files','downloadUrl'))
+        fields(manifest,MANIFEST_FIELDS+('downloadSha256',),('schemaVersion','apiVersion','id','name','version','author','files'))
         if manifest.get('backend') is not None:fields(manifest['backend'],('entry','args','runAs','autostart','restart','restartLimit'),('entry',))
         validate_lifecycle(manifest)
+        validate_relations(manifest)
         ui=manifest.get('ui',{});fields(ui,('quickPage','windows'),())
         for window in ui.get('windows',{}).values():fields(window,('entry','title','dockIcon'),('entry','title'))
         if manifest.get('publish') is not None:fields(manifest['publish'],('icon','screenshots'),())
         identifier(manifest['id']);require(manifest['id'] not in seen,'Duplicate plugin ID');seen.add(manifest['id'])
         require(manifest['schemaVersion']==1 and manifest['apiVersion']==1,'Unsupported Framely API')
         text(manifest['version'],64,'version',True);require(re.fullmatch(r'[A-Za-z0-9.+-]+',manifest['version']),'Invalid version')
+        automatic='downloadUrl' not in manifest
+        if automatic:
+            match=re.fullmatch(r'https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?',repository)
+            require(match is not None,'downloadUrl is required for repositories outside GitHub')
+            manifest['downloadUrl']='https://github.com/'+match.group(1)+'/releases/download/v'+manifest['version']+'/'+manifest['id']+'-'+manifest['version']+'.framely'
         url=https(manifest['downloadUrl']);parsed=urllib.parse.urlsplit(url)
         if parsed.hostname=='github.com':
             parts=parsed.path.split('/')
             require(len(parts)==7 and parts[3:5]==['releases','download'] and parts[5]!='latest','Use a fixed GitHub Release download URL')
-        entries.append({'id':manifest['id'],'version':manifest['version'],'repository':repository,'commit':commit,'packageUrl':url,'manifest':manifest})
+        expected=sha256_value(manifest.pop('downloadSha256')) if 'downloadSha256' in manifest else None
+        require(expected is not None or parsed.hostname=='github.com','Custom downloadUrl requires downloadSha256')
+        entries.append({'automaticDownload':automatic,'expectedSha256':expected,'id':manifest['id'],'version':manifest['version'],'repository':repository,'commit':commit,'packageUrl':url,'manifest':manifest})
     return entries
 
 class HTTPSRedirect(urllib.request.HTTPRedirectHandler):
@@ -116,17 +148,48 @@ class HTTPSRedirect(urllib.request.HTTPRedirectHandler):
         https(newurl)
         return super().redirect_request(req,fp,code,msg,headers,newurl)
 
-def download(url):
+def download(url,limit=MAX_PACKAGE,token=None):
     https(url);request=urllib.request.Request(url,headers={'User-Agent':'Framely-Plugin-Database/1'})
+    token=token or os.environ.get('GITHUB_TOKEN')
+    if urllib.parse.urlsplit(url).hostname=='api.github.com' and token:
+        request.add_unredirected_header('Authorization','Bearer '+token)
     with urllib.request.build_opener(HTTPSRedirect).open(request,timeout=30) as response:
         https(response.geturl())
-        length=response.headers.get('Content-Length');require(length is None or 0<int(length)<=MAX_PACKAGE,'Package exceeds size limit')
-        data=response.read(MAX_PACKAGE+1);require(0<len(data)<=MAX_PACKAGE,'Package exceeds size limit')
+        length=response.headers.get('Content-Length');require(length is None or 0<int(length)<=limit,'Package exceeds size limit')
+        data=response.read(limit+1);require(0<len(data)<=limit,'Package exceeds size limit')
         require(length is None or len(data)==int(length),'Truncated package download');return data
+
+def sha256_value(value):
+    require(isinstance(value,str) and re.fullmatch(r'[0-9a-fA-F]{64}',value),'Expected a SHA256 hex digest')
+    return value.lower()
+
+def release_sha256(entry):
+    parsed=urllib.parse.urlsplit(entry['packageUrl']);parts=parsed.path.split('/')
+    require(parsed.hostname=='github.com' and not parsed.query and len(parts)==7 and parts[3:5]==['releases','download'],'Provide downloadSha256 for a custom download URL')
+    owner,repository,tag,filename=(urllib.parse.unquote(parts[i]) for i in (1,2,5,6))
+    endpoint='https://api.github.com/repos/'+urllib.parse.quote(owner,safe='')+'/'+urllib.parse.quote(repository,safe='')+'/releases/tags/'+urllib.parse.quote(tag,safe='')
+    release=object_json(download(endpoint,limit=2*1024*1024))
+    require(release.get('tag_name')==tag and release.get('draft') is False,'Release must be published at the registered tag')
+    assets=[asset for asset in release.get('assets',[]) if asset.get('name')==filename and asset.get('browser_download_url')==entry['packageUrl'] and asset.get('state')=='uploaded']
+    require(len(assets)==1,'Release asset is missing or ambiguous')
+    digest=assets[0].get('digest')
+    require(isinstance(digest,str) and digest.startswith('sha256:'),'Release asset has no SHA256 digest')
+    return sha256_value(digest[7:])
+
+def verified_download(entry):
+    expected=entry.get('expectedSha256')
+    if entry.get('automaticDownload') or expected is None:
+        release_digest=release_sha256(entry)
+        require(expected is None or expected==release_digest,'Configured SHA256 differs from Release digest')
+        expected=release_digest
+    data=download(entry['packageUrl']);actual=hashlib.sha256(data).hexdigest()
+    require(actual==expected,'Downloaded package SHA256 differs from declared or Release digest: '+entry['id'])
+    manifest,files=verify_package(data,entry)
+    return manifest,files,expected
 
 def metadata(manifest):
     # Normalize defaults emitted by the Rust packer before comparing declarations.
-    value={key:manifest.get(key,default) for key,default in [('schemaVersion',1),('apiVersion',1),('id',''),('name',''),('version',''),('description',''),('author',''),('icon',None),('details',''),('category','其他'),('tags',[]),('screenshots',[]),('changelog',''),('downloadUrl',None)]}
+    value={key:manifest.get(key,default) for key,default in [('schemaVersion',1),('apiVersion',1),('id',''),('name',''),('version',''),('description',''),('author',''),('authorUrl',None),('documentationUrl',None),('homepage',None),('icon',None),('details',''),('tags',[]),('screenshots',[]),('changelog',''),('downloadUrl',None)]}
     backend=manifest.get('backend')
     value['backend']=None if backend is None else {key:backend.get(key,default) for key,default in [('entry',''),('args',[]),('runAs','framely'),('autostart',False),('restart','on-failure'),('restartLimit',3)]}
     lifecycle=manifest.get('lifecycle')
@@ -136,6 +199,8 @@ def metadata(manifest):
             hook=lifecycle.get(phase);value['lifecycle'][phase]=None if hook is None else {'entry':hook['entry'],'args':hook.get('args',[])}
     ui=manifest.get('ui',{});value['ui']={'quickPage':ui.get('quickPage'),'windows':{key:{field:window.get(field,default) for field,default in [('entry',''),('title',''),('dockIcon',False)]} for key,window in ui.get('windows',{}).items()}}
     publish=manifest.get('publish') or {};value['publish']={'icon':publish.get('icon'),'screenshots':publish.get('screenshots',[])}
+    for field in ('dependencies','optionalDependencies','conflicts'):value[field]=manifest.get(field,{})
+    value['exclusiveResources']=manifest.get('exclusiveResources',[])
     value['permissions']=sorted(manifest.get('permissions',[]))
     return value
 
@@ -152,9 +217,14 @@ def verify_package(data,entry):
     fields(manifest,MANIFEST_FIELDS,('schemaVersion','apiVersion','id','name','version','author','files','downloadUrl'))
     require(manifest['schemaVersion']==1 and manifest['apiVersion']==1,'Unsupported Framely API');require(manifest['id']==entry['id'] and manifest['version']==entry['version'],'ID/version differs from registration')
     https(manifest['downloadUrl']);require(metadata(manifest)==metadata(entry['manifest']),'Package declarations differ from pinned source manifest')
-    for key,limit in [('name',120),('author',120),('description',4096),('details',32768),('category',80),('changelog',16384)]:text(manifest.get(key,'其他' if key=='category' else ''),limit,key,key in ('name','author'))
+    for key,limit in [('name',120),('author',120),('description',4096),('details',32768),('changelog',16384)]:text(manifest.get(key,''),limit,key,key in ('name','author'))
+    for key in ('authorUrl','documentationUrl','homepage'):
+        value=manifest.get(key)
+        if value is not None:
+            text(value,2048,key,True);url=urllib.parse.urlsplit(value)
+            require(url.scheme in ('http','https') and url.hostname and not url.username and not url.password and not any(c.isspace() for c in value),'Invalid web link')
     tags=manifest.get('tags',[]);require(isinstance(tags,list) and len(tags)<=12,'Too many tags')
-    for tag in tags:text(tag,80,'tag')
+    for tag in tags:text(tag,80,'tag',True)
     hashes=manifest['files'];require(isinstance(hashes,dict) and 0<len(hashes)<=2048 and set(hashes)==set(files),'Missing or unlisted payload')
     for path,digest in hashes.items():safe_path(path);require(hashlib.sha256(files[path]).hexdigest()==digest,'Payload hash mismatch: '+path)
     def hashed(path):safe_path(path);require(path in files,'Entry missing from payload')
@@ -163,6 +233,7 @@ def verify_package(data,entry):
         fields(backend,('entry','args','runAs','autostart','restart','restartLimit'),('entry',));hashed(backend['entry']);require(backend.get('runAs','framely') in ('framely','steamos','root'),'Invalid backend identity');require(isinstance(backend.get('autostart',False),bool),'Invalid autostart');args=backend.get('args',[]);require(isinstance(args,list) and len(args)<=64,'Invalid backend arguments')
         for arg in args:text(arg,4096,'backend argument');require('\0' not in arg,'NUL backend argument')
     validate_lifecycle(manifest,hashed)
+    validate_relations(manifest)
     ui=manifest.get('ui',{});fields(ui,('quickPage','windows'),());
     if ui.get('quickPage'):hashed(ui['quickPage'])
     windows=ui.get('windows',{});require(isinstance(windows,dict) and len(windows)<=8,'Invalid windows')
@@ -190,22 +261,38 @@ def previous_catalog(url,path):
         data=b'{"schemaVersion":1,"plugins":[]}'
     pathlib.Path(path).write_bytes(data)
 
+def write_tags(catalogs,output):
+    tags=set()
+    for catalog in catalogs:
+        for plugin in catalog.get('plugins',[]):
+            for tag in plugin.get('tags',[]):
+                text(tag,80,'tag',True);tags.add(tag)
+    pathlib.Path(output).write_text(json.dumps({'schemaVersion':1,'tags':sorted(tags)},ensure_ascii=False,indent=2)+'\n')
+
 def build(root,output,name='Framely Plugins',previous=None,report=None):
     root=pathlib.Path(root).resolve();output=pathlib.Path(output).absolute();require(not output.exists(),'Output directory already exists');require(root not in output.parents and root!=output,'Output must be outside source checkout')
-    entries=registrations(root);old={} if previous is None else {p['id']:p for p in object_json(pathlib.Path(previous).read_bytes())['plugins']};output.parent.mkdir(parents=True,exist_ok=True)
+    entries=registrations(root);history=[] if previous is None else object_json(pathlib.Path(previous).read_bytes())['plugins'];old={};seen=set()
+    for item in history:
+        pair=(item['id'],item['version']);require(pair not in seen,'Duplicate catalog version');seen.add(pair);old.setdefault(item['id'],item)
+    output.parent.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(dir=output.parent) as temporary:
         stage=pathlib.Path(temporary)/'site';stage.mkdir();catalog=[];changes=[]
         for entry in entries:
-            data=download(entry['packageUrl']);manifest,files=verify_package(data,entry);digest=hashlib.sha256(data).hexdigest();prior=old.get(entry['id'])
-            require(not prior or prior['version']!=entry['version'] or prior['sha256']==digest,'Published version changed: '+entry['id'])
-            item={key:manifest.get(key,default) for key,default in [('id',''),('name',''),('version',''),('description',''),('author',''),('apiVersion',1),('details',''),('category','其他'),('tags',[]),('changelog','')]}
+            manifest,files,digest=verified_download(entry);prior=old.get(entry['id'])
+            require(all(item['id']!=entry['id'] or item['version']!=entry['version'] or item['sha256']==digest for item in history),'Published version changed: '+entry['id'])
+            item={key:manifest.get(key,default) for key,default in [('id',''),('name',''),('version',''),('description',''),('author',''),('authorUrl',None),('documentationUrl',None),('homepage',None),('apiVersion',1),('details',''),('tags',[]),('changelog','')]}
+            for field in ('dependencies','optionalDependencies','conflicts','exclusiveResources'):item[field]=metadata(manifest)[field]
             publish=manifest.get('publish') or {}
             item.update(url=entry['packageUrl'],sha256=digest,icon=publish.get('icon'),screenshots=publish.get('screenshots',[]),runAs=metadata(manifest)['backend']['runAs'] if manifest.get('backend') else (manifest.get('lifecycle') or {}).get('runAs'),permissions=manifest.get('permissions',[]))
             catalog.append(item)
+            archived=[p for p in history if p['id']==item['id'] and p['version']!=item['version']]
+            catalog.extend(archived[:19])
             current={key:item[key] for key in ('version','runAs','permissions')};before=None if prior is None else {key:prior.get(key) for key in current}
             if current!=before:changes.append({'id':item['id'],'before':before,'after':current})
         for identifier in sorted(set(old)-{p['id'] for p in catalog}):changes.append({'id':identifier,'before':{key:old[identifier].get(key) for key in ('version','runAs','permissions')},'after':None})
+        require(len(catalog)<=1000,'Catalog exceeds 1000 version entries')
         encoded=json.dumps({'schemaVersion':1,'name':name,'plugins':catalog},ensure_ascii=False,indent=2)+'\n';require(len(encoded.encode())<=2*1024*1024,'Catalog exceeds Framely 2 MiB limit');(stage/'catalog.json').write_text(encoded)
+        write_tags([{'plugins':catalog}],stage/'tags.json')
         if report is not None:pathlib.Path(report).write_text('### 插件版本、运行身份与权限变化\n\n```json\n'+json.dumps(changes,ensure_ascii=False,indent=2)+'\n```\n')
         os.rename(stage,output)
     return len(entries)
@@ -224,7 +311,7 @@ def main():
     elif args.command=='validate':
         entries=registrations(args.root)
         if args.packages:
-            for entry in entries:verify_package(download(entry['packageUrl']),entry)
+            for entry in entries:verified_download(entry)
         print('Validated',len(entries),'plugin registrations')
     else:print('Published',build(args.root,args.output,args.name,args.previous_catalog,args.report),'plugins to',args.output)
 if __name__=='__main__':main()

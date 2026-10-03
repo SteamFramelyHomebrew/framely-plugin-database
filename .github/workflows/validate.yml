@@ -23,6 +23,7 @@ jobs:
       - name: Validate packages and summarize changes
         env:
           TARGET_BRANCH: ${{ github.base_ref || github.ref_name }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           channel=testing
