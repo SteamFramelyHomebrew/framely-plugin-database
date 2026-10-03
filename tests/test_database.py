@@ -147,17 +147,21 @@ class Database(unittest.TestCase):
   self.assertNotIn('category',json.loads((output/'catalog.json').read_text())['plugins'][0])
 
  def test_catalog_keeps_version_choices_and_drops_removed_plugins(self):
-  self.register();old=pathlib.Path(self.temp.name)/'v1'
-  with patch.object(db,'download',return_value=self.package()):db.build(self.root,old)
-  manifest=self.manifest();manifest['version']='2.0.0';manifest['downloadUrl']=URL.replace('v1.0.0','v2.0.0');self.register(manifest)
+  initial=self.manifest();initial['tags']=['工具','旧标签'];self.register(initial);old=pathlib.Path(self.temp.name)/'v1'
+  with patch.object(db,'download',return_value=self.package(initial)):db.build(self.root,old)
+  manifest=self.manifest();manifest['version']='2.0.0';manifest['tags']=['工具','新标签'];manifest['downloadUrl']=URL.replace('v1.0.0','v2.0.0');self.register(manifest)
   new=pathlib.Path(self.temp.name)/'v2'
   with patch.object(db,'download',return_value=self.package(manifest)):db.build(self.root,new,previous=old/'catalog.json')
   entries=json.loads((new/'catalog.json').read_text())['plugins'];self.assertEqual([p['version'] for p in entries],['2.0.0','1.0.0']);self.assertEqual(entries[1]['url'],URL)
+  self.assertEqual(entries[1]['tags'],initial['tags'])
+  self.assertEqual(json.loads((new/'tags.json').read_text())['tags'],['工具','新标签'])
   again=pathlib.Path(self.temp.name)/'again'
   with patch.object(db,'download',return_value=self.package(manifest)):db.build(self.root,again,previous=new/'catalog.json')
   self.assertEqual(len(json.loads((again/'catalog.json').read_text())['plugins']),2)
+  self.assertEqual(json.loads((again/'tags.json').read_text())['tags'],['工具','新标签'])
   # An archived version remains immutable even after it stops being the default.
   subprocess.run(['git','-C',str(self.root),'update-index','--force-remove','plugins/test'],check=True);(self.root/'.gitmodules').unlink()
   empty=pathlib.Path(self.temp.name)/'empty';db.build(self.root,empty,previous=new/'catalog.json');self.assertEqual(json.loads((empty/'catalog.json').read_text())['plugins'],[])
+  self.assertEqual(json.loads((empty/'tags.json').read_text())['tags'],[])
 
 if __name__=='__main__':unittest.main()

@@ -288,7 +288,7 @@ def build(root,output,name='Framely Plugins',previous=None,report=None):
         pair=(item['id'],item['version']);require(pair not in seen,'Duplicate catalog version');seen.add(pair);old.setdefault(item['id'],item)
     output.parent.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(dir=output.parent) as temporary:
-        stage=pathlib.Path(temporary)/'site';stage.mkdir();catalog=[];changes=[]
+        stage=pathlib.Path(temporary)/'site';stage.mkdir();catalog=[];current_plugins=[];changes=[]
         for entry in entries:
             manifest,files,digest=verified_download(entry);prior=old.get(entry['id'])
             require(all(item['id']!=entry['id'] or item['version']!=entry['version'] or item['sha256']==digest for item in history),'Published version changed: '+entry['id'])
@@ -298,6 +298,7 @@ def build(root,output,name='Framely Plugins',previous=None,report=None):
             publish=manifest.get('publish') or {}
             item.update(url=entry['packageUrl'],sha256=digest,icon=published.get('icon') if published is not None else store_icon(entry,files),screenshots=publish.get('screenshots',[]),runAs=metadata(manifest)['backend']['runAs'] if manifest.get('backend') else (manifest.get('lifecycle') or {}).get('runAs'),permissions=manifest.get('permissions',[]))
             catalog.append(item)
+            current_plugins.append(item)
             archived=[p for p in history if p['id']==item['id'] and p['version']!=item['version']]
             catalog.extend(archived[:19])
             current={key:item[key] for key in ('version','runAs','permissions')};before=None if prior is None else {key:prior.get(key) for key in current}
@@ -305,7 +306,7 @@ def build(root,output,name='Framely Plugins',previous=None,report=None):
         for identifier in sorted(set(old)-{p['id'] for p in catalog}):changes.append({'id':identifier,'before':{key:old[identifier].get(key) for key in ('version','runAs','permissions')},'after':None})
         require(len(catalog)<=1000,'Catalog exceeds 1000 version entries')
         encoded=json.dumps({'schemaVersion':1,'name':name,'plugins':catalog},ensure_ascii=False,indent=2)+'\n';require(len(encoded.encode())<=2*1024*1024,'Catalog exceeds Framely 2 MiB limit');(stage/'catalog.json').write_text(encoded)
-        write_tags([{'plugins':catalog}],stage/'tags.json')
+        write_tags([{'plugins':current_plugins}],stage/'tags.json')
         if report is not None:pathlib.Path(report).write_text('### 插件版本、运行身份与权限变化\n\n```json\n'+json.dumps(changes,ensure_ascii=False,indent=2)+'\n```\n')
         os.rename(stage,output)
     return len(entries)
