@@ -1,3 +1,6 @@
 [submodule "plugins/tooru.passthrough-color"]
 	path = plugins/tooru.passthrough-color
 	url = https://github.com/toorux/framely-plugin-passthrough-color.git
+[submodule "plugins/tooru.termix"]
+	path = plugins/tooru.termix
+	url = https://github.com/toorux/framely-plugin-termix.git
