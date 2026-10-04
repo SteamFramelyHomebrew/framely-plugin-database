@@ -82,6 +82,50 @@ class Database(unittest.TestCase):
   self.assertEqual(db.registrations(self.root)[0]['manifest'],entry['manifest'])
   manifest=self.manifest();manifest['backend'].update(runAs='steamos',autostart=False,args=[]);manifest['ui']['windows']={}
   db.verify_package(self.package(manifest),entry)
+ def window_manifest(self,**dimensions):
+  manifest=self.manifest();manifest['ui']['windows']={'main':{'entry':'page.js','title':'Main','dockIcon':True,**dimensions}};return manifest
+ def test_window_defaults_match_dimensions_emitted_by_rust_packer(self):
+  entry=self.register(self.window_manifest())
+  packed=self.window_manifest(width=1600,height=900,widthMeters=3.0)
+  db.verify_package(self.package(packed),entry)
+  # Old packages omitting dimensions still match explicitly declared defaults.
+  entry=self.register(packed);db.verify_package(self.package(self.window_manifest()),entry)
+ def test_custom_window_dimensions_and_boundaries_are_supported(self):
+  for dimensions in [dict(width=640,height=360,widthMeters=0.4),dict(width=2560,height=1440,widthMeters=4),dict(width=1280,height=720,widthMeters=2.5)]:
+   with self.subTest(dimensions=dimensions):
+    manifest=self.window_manifest(**dimensions);entry=self.register(manifest);db.verify_package(self.package(manifest),entry)
+ def test_window_float32_rounding_and_null_serialization_match_rust(self):
+  for value in [0.7,0.654321,0.399999999,4.00000001,None]:
+   with self.subTest(value=value):
+    source=self.window_manifest(widthMeters=value);entry=self.register(source)
+    packed=self.window_manifest(widthMeters=db.window_width_meters(value))
+    db.verify_package(self.package(packed),entry)
+    if value is None:db.verify_package(self.package(self.window_manifest()),entry)
+ def test_invalid_window_dimensions_are_rejected_in_source_and_package(self):
+  invalid=[('width',v) for v in [639,2561,None,True,'1600',1600.0]]
+  invalid += [('height',v) for v in [359,1441,None,True,'900',900.0]]
+  invalid += [('widthMeters',v) for v in [0.39,4.01,0,-1,True,'3',float('nan'),float('inf'),float('-inf'),10**1000]]
+  for field,value in invalid:
+   with self.subTest(field=field,value=str(value)):
+    manifest=self.window_manifest(**{field:value})
+    with self.assertRaises(ValueError):self.register(manifest)
+    with self.assertRaises(ValueError):db.verify_package(self.package(manifest),{'id':manifest['id'],'version':manifest['version'],'manifest':manifest})
+ def test_window_dimensions_cannot_change_without_source_declaration(self):
+  entry=self.register(self.window_manifest())
+  for dimensions in [dict(width=1280),dict(height=720),dict(widthMeters=2.5)]:
+   with self.subTest(dimensions=dimensions),self.assertRaisesRegex(ValueError,'declarations differ'):
+    db.verify_package(self.package(self.window_manifest(**dimensions)),entry)
+ def test_window_unknown_fields_flags_and_unhashed_entries_stay_rejected(self):
+  for change in [dict(unknown=True),dict(dockIcon=1),dict(localWeb='yes')]:
+   manifest=self.window_manifest(**change)
+   with self.subTest(change=change),self.assertRaises(ValueError):self.register(manifest)
+   with self.assertRaises(ValueError):db.verify_package(self.package(manifest),{'id':manifest['id'],'version':manifest['version'],'manifest':manifest})
+  manifest=self.window_manifest();manifest['ui']['windows']['main']['entry']='missing.js';entry=self.register(manifest)
+  with self.assertRaisesRegex(ValueError,'Entry missing'):db.verify_package(self.package(manifest),entry)
+ def test_window_count_and_keys_are_checked_at_source_registration(self):
+  for windows in [{'Main':{'entry':'page.js','title':'Main'}},{str(i):{'entry':'page.js','title':'Main'} for i in range(9)},[]]:
+   manifest=self.manifest();manifest['ui']['windows']=windows
+   with self.subTest(windows=windows),self.assertRaises(ValueError):self.register(manifest)
  def test_catalog_uses_author_urls_and_never_copies_packages_or_images(self):
   entry=self.register();data=self.package();output=pathlib.Path(self.temp.name)/'site';report=pathlib.Path(self.temp.name)/'report.md'
   with patch.object(db,'download',return_value=data):self.assertEqual(db.build(self.root,output,report=report),1)

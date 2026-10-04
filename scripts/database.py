@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Validate pinned source registrations and generate a Framely catalog from author releases."""
-import argparse, configparser, hashlib, json, os, pathlib, re, stat, struct, subprocess, tempfile, urllib.error, urllib.parse, urllib.request, zipfile
+import argparse, configparser, hashlib, json, math, os, pathlib, re, stat, struct, subprocess, tempfile, urllib.error, urllib.parse, urllib.request, zipfile
 ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,79}\Z')
 CATALOG_FIELDS=frozenset(('id','name','version','description','author','authorUrl','documentationUrl','homepage','apiVersion','url','sha256','runAs','icon','details','category','tags','screenshots','changelog','dependencies','optionalDependencies','conflicts','exclusiveResources'))
 
@@ -32,6 +32,33 @@ def fields(value,allowed,required):
     require(isinstance(value,dict) and set(value)<=set(allowed) and set(required)<=set(value),'Missing or unknown object fields')
 
 MANIFEST_FIELDS=('schemaVersion','apiVersion','id','name','version','description','author','authorUrl','documentationUrl','homepage','icon','details','category','tags','screenshots','changelog','backend','lifecycle','dependencies','optionalDependencies','conflicts','exclusiveResources','ui','downloadUrl','publish','files')
+
+WINDOW_FIELDS=('entry','title','dockIcon','localWeb','width','height','widthMeters')
+
+def window_width_meters(value):
+    # Rust deserializes f32, and omits None while serializing; reading the
+    # omitted field again uses the 3m default. Compare effective packed values.
+    if value is None:return 3.0
+    require(type(value) in (int,float),'Invalid physical window width')
+    try:width=struct.unpack('!f',struct.pack('!f',value))[0]
+    except (OverflowError,struct.error) as error:raise ValueError('Invalid physical window width') from error
+    minimum=struct.unpack('!f',struct.pack('!f',0.4))[0]
+    require(math.isfinite(width) and minimum<=width<=4.0,'Invalid physical window width')
+    return width
+
+def validate_window(window,hashed=None):
+    fields(window,WINDOW_FIELDS,('entry','title'));safe_path(window['entry'])
+    if hashed is not None:hashed(window['entry'])
+    text(window['title'],120,'window title',True)
+    for flag in ('dockIcon','localWeb'):require(type(window.get(flag,False)) is bool,'Invalid '+flag)
+    for field,default,minimum,maximum in [('width',1600,640,2560),('height',900,360,1440)]:
+        value=window.get(field,default);require(type(value) is int and minimum<=value<=maximum,'Invalid window '+field)
+    window_width_meters(window.get('widthMeters',3.0))
+
+def window_metadata(window):
+    value={field:window.get(field,default) for field,default in [('entry',''),('title',''),('dockIcon',False),('localWeb',False),('width',1600),('height',900)]}
+    value['widthMeters']=window_width_meters(window.get('widthMeters',3.0))
+    return value
 
 def validate_lifecycle(manifest,hashed=None):
     backend=manifest.get('backend')
@@ -135,7 +162,8 @@ def registrations(root):
         validate_lifecycle(manifest)
         validate_relations(manifest)
         ui=manifest.get('ui',{});fields(ui,('quickPage','windows'),())
-        for window in ui.get('windows',{}).values():fields(window,('entry','title','dockIcon','localWeb'),('entry','title'))
+        windows=ui.get('windows',{});require(isinstance(windows,dict) and len(windows)<=8,'Invalid windows')
+        for key,window in windows.items():identifier(key);validate_window(window)
         if manifest.get('publish') is not None:fields(manifest['publish'],('icon','screenshots'),())
         identifier(manifest['id']);require(manifest['id'] not in seen,'Duplicate plugin ID');seen.add(manifest['id'])
         require(manifest['schemaVersion']==1 and manifest['apiVersion']==1,'Unsupported Framely API')
@@ -210,7 +238,7 @@ def metadata(manifest):
     if lifecycle is not None:
         for phase in ('onInstall','onUpdate','onUninstall','onCrashCleanup'):
             hook=lifecycle.get(phase);value['lifecycle'][phase]=None if hook is None else {'entry':hook['entry'],'args':hook.get('args',[])}
-    ui=manifest.get('ui',{});value['ui']={'quickPage':ui.get('quickPage'),'windows':{key:{field:window.get(field,default) for field,default in [('entry',''),('title',''),('dockIcon',False),('localWeb',False)]} for key,window in ui.get('windows',{}).items()}}
+    ui=manifest.get('ui',{});value['ui']={'quickPage':ui.get('quickPage'),'windows':{key:window_metadata(window) for key,window in ui.get('windows',{}).items()}}
     publish=manifest.get('publish') or {};value['publish']={'icon':publish.get('icon'),'screenshots':publish.get('screenshots',[])}
     for field in ('dependencies','optionalDependencies','conflicts'):value[field]=manifest.get(field,{})
     value['exclusiveResources']=manifest.get('exclusiveResources',[])
@@ -248,7 +276,7 @@ def verify_package(data,entry):
     ui=manifest.get('ui',{});fields(ui,('quickPage','windows'),());
     if ui.get('quickPage'):hashed(ui['quickPage'])
     windows=ui.get('windows',{});require(isinstance(windows,dict) and len(windows)<=8,'Invalid windows')
-    for key,window in windows.items():identifier(key);fields(window,('entry','title','dockIcon','localWeb'),('entry','title'));hashed(window['entry']);text(window['title'],120,'window title',True);require(isinstance(window.get('dockIcon',False),bool),'Invalid dockIcon');require(isinstance(window.get('localWeb',False),bool),'Invalid localWeb')
+    for key,window in windows.items():identifier(key);validate_window(window,hashed)
     if manifest.get('icon'):
         icon=manifest['icon'];hashed(icon);image=files[icon];require(icon.endswith('.png') and 24<=len(image)<=1024*1024 and image.startswith(b'\x89PNG\r\n\x1a\n') and image[12:16]==b'IHDR','Invalid PNG icon');require(all(0<v<=1024 for v in struct.unpack('>II',image[16:24])),'Invalid icon dimensions')
     screenshots=manifest.get('screenshots',[]);require(isinstance(screenshots,list) and len(screenshots)<=8,'Too many screenshots')
