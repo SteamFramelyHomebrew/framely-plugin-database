@@ -4,6 +4,7 @@ import argparse, configparser, hashlib, json, os, pathlib, re, stat, struct, sub
 MAX_PACKAGE=64*1024*1024
 MAX_EXPANDED=128*1024*1024
 ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,79}\Z')
+CATALOG_FIELDS=frozenset(('id','name','version','description','author','authorUrl','documentationUrl','homepage','apiVersion','url','sha256','runAs','icon','details','category','tags','screenshots','changelog','dependencies','optionalDependencies','conflicts','exclusiveResources'))
 
 def require(condition,message):
     if not condition: raise ValueError(message)
@@ -311,7 +312,7 @@ def build(root,output,name='Framely Plugins',previous=None,report=None):
             item.update(url=entry['packageUrl'],sha256=digest,icon=published.get('icon') if published is not None else store_icon(entry,files),screenshots=publish.get('screenshots',[]),runAs=metadata(manifest)['backend']['runAs'] if manifest.get('backend') else ((manifest.get('lifecycle') or {}).get('runAs') or 'steamos'))
             catalog.append(item)
             current_plugins.append(item)
-            archived=[p for p in history if p['id']==item['id'] and p['version']!=item['version']]
+            archived=[p for p in history if p['id']==item['id'] and p['version']!=item['version'] and set(p)<=CATALOG_FIELDS and p.get('runAs') in ('steamos','root')]
             catalog.extend(archived[:19])
             current={key:item[key] for key in ('version','runAs')};before=None if prior is None else {key:prior.get(key) for key in current}
             if current!=before:changes.append({'id':item['id'],'before':before,'after':current})
@@ -319,7 +320,7 @@ def build(root,output,name='Framely Plugins',previous=None,report=None):
         require(len(catalog)<=1000,'Catalog exceeds 1000 version entries')
         encoded=json.dumps({'schemaVersion':1,'name':name,'plugins':catalog},ensure_ascii=False,indent=2)+'\n';require(len(encoded.encode())<=2*1024*1024,'Catalog exceeds Framely 2 MiB limit');(stage/'catalog.json').write_text(encoded)
         write_tags([{'plugins':current_plugins}],stage/'tags.json')
-        if report is not None:pathlib.Path(report).write_text('### 插件版本、运行身份与权限变化\n\n```json\n'+json.dumps(changes,ensure_ascii=False,indent=2)+'\n```\n')
+        if report is not None:pathlib.Path(report).write_text('### 插件版本与运行用户变化\n\n```json\n'+json.dumps(changes,ensure_ascii=False,indent=2)+'\n```\n')
         os.rename(stage,output)
     return len(entries)
 
