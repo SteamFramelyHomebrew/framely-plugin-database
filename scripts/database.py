@@ -97,26 +97,40 @@ def source_pins(root):
     require(len(pins)<=1000,'Catalog exceeds 1000 plugins')
     return [(path,registered[path],pins[path]) for path in sorted(pins)]
 
-def fetch_sources(root):
+def fetch_sources(root,ownership_only=False):
     root=pathlib.Path(root).resolve()
     for path,repository,commit in source_pins(root):
         require(not (root/path).is_symlink(),'Submodule cannot be a symlink')
         subprocess.run(['git','-C',str(root),'submodule','sync','--',path],check=True)
         subprocess.run(['git','-C',str(root),'-c','protocol.file.allow=never','-c','protocol.ssh.allow=never','-c','protocol.http.allow=never','-c','protocol.https.allow=always','submodule','update','--init','--checkout','--',path],check=True)
     # Read Git objects at the pin, not files that checkout filters could modify.
-    return registrations(root)
+    return ownership_entries(root) if ownership_only else registrations(root)
+
+def pinned_manifest(root,path,commit):
+    source=pathlib.Path(root).resolve()/path
+    require(source.is_dir() and not source.is_symlink(),'Initialize submodules using database.py fetch')
+    top=subprocess.check_output(['git','-C',str(source),'rev-parse','--show-toplevel'],text=True).strip()
+    require(pathlib.Path(top).resolve()==source,'Plugin must be a separate Git submodule')
+    spec=commit+':manifest.json'
+    size=int(subprocess.check_output(['git','-C',str(source),'cat-file','-s',spec]))
+    require(size<=256*1024,'Manifest too large')
+    return object_json(subprocess.check_output(['git','-C',str(source),'show',spec]))
+
+def ownership_entries(root):
+    entries=[];seen=set()
+    for path,repository,commit in source_pins(root):
+        manifest=pinned_manifest(root,path,commit)
+        require(isinstance(manifest,dict),'Invalid manifest object')
+        plugin_id=manifest.get('id');identifier(plugin_id)
+        require(path=='plugins/'+plugin_id,'Submodule path must match manifest ID: '+path)
+        require(plugin_id not in seen,'Duplicate plugin ID');seen.add(plugin_id)
+        entries.append({'id':plugin_id,'repository':repository,'commit':commit})
+    return entries
 
 def registrations(root):
     root=pathlib.Path(root).resolve();entries=[];seen=set()
     for path,repository,commit in source_pins(root):
-        source=root/path
-        require(source.is_dir() and not source.is_symlink(),'Initialize submodules using database.py fetch')
-        top=subprocess.check_output(['git','-C',str(source),'rev-parse','--show-toplevel'],text=True).strip()
-        require(pathlib.Path(top).resolve()==source,'Plugin must be a separate Git submodule')
-        spec=commit+':manifest.json'
-        size=int(subprocess.check_output(['git','-C',str(source),'cat-file','-s',spec]))
-        require(size<=256*1024,'Manifest too large')
-        manifest=object_json(subprocess.check_output(['git','-C',str(source),'show',spec]))
+        manifest=pinned_manifest(root,path,commit)
         fields(manifest,MANIFEST_FIELDS+('downloadSha256',),('schemaVersion','apiVersion','id','name','version','author','files'))
         if manifest.get('backend') is not None:fields(manifest['backend'],('entry','args','runAs','autostart','restart','restartLimit'),('entry',))
         validate_lifecycle(manifest)
@@ -312,14 +326,14 @@ def build(root,output,name='Framely Plugins',previous=None,report=None):
 def main():
     parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='command',required=True)
     validate=sub.add_parser('validate');validate.add_argument('--root',type=pathlib.Path,default=pathlib.Path(__file__).resolve().parents[1]);validate.add_argument('--packages',action='store_true')
-    fetch=sub.add_parser('fetch');fetch.add_argument('--root',type=pathlib.Path,default=pathlib.Path(__file__).resolve().parents[1])
+    fetch=sub.add_parser('fetch');fetch.add_argument('--root',type=pathlib.Path,default=pathlib.Path(__file__).resolve().parents[1]);fetch.add_argument('--ownership-only',action='store_true')
     publish=sub.add_parser('build');publish.add_argument('--root',type=pathlib.Path,default=pathlib.Path(__file__).resolve().parents[1]);publish.add_argument('--output',type=pathlib.Path,required=True);publish.add_argument('--name',default='Framely Plugins');publish.add_argument('--previous-catalog',type=pathlib.Path);publish.add_argument('--report',type=pathlib.Path)
     previous=sub.add_parser('previous');previous.add_argument('--url',required=True);previous.add_argument('--output',required=True,type=pathlib.Path)
     args=parser.parse_args()
     if args.command=='previous':
         previous_catalog(args.url,args.output)
     elif args.command=='fetch':
-        print('Fetched',len(fetch_sources(args.root)),'pinned plugins')
+        print('Fetched',len(fetch_sources(args.root,ownership_only=args.ownership_only)),'pinned plugins')
     elif args.command=='validate':
         entries=registrations(args.root)
         if args.packages:

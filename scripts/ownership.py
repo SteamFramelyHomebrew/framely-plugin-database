@@ -80,7 +80,7 @@ def reserve(registry, entry):
 def entries(root):
     result = {}
     sources = db.source_pins(root)
-    for source, entry in zip(sources, db.registrations(root)):
+    for source, entry in zip(sources, db.ownership_entries(root)):
         path = source[0]
         db.require(path == 'plugins/' + entry['id'], 'Submodule path must match manifest ID: ' + path)
         result[path] = entry
