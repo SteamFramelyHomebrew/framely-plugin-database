@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Validate pinned source registrations and generate a Framely catalog from author releases."""
 import argparse, configparser, hashlib, json, os, pathlib, re, stat, struct, subprocess, tempfile, urllib.error, urllib.parse, urllib.request, zipfile
-MAX_PACKAGE=64*1024*1024
-MAX_EXPANDED=128*1024*1024
 ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,79}\Z')
 CATALOG_FIELDS=frozenset(('id','name','version','description','author','authorUrl','documentationUrl','homepage','apiVersion','url','sha256','runAs','icon','details','category','tags','screenshots','changelog','dependencies','optionalDependencies','conflicts','exclusiveResources'))
 
@@ -163,15 +161,15 @@ class HTTPSRedirect(urllib.request.HTTPRedirectHandler):
         https(newurl)
         return super().redirect_request(req,fp,code,msg,headers,newurl)
 
-def download(url,limit=MAX_PACKAGE,token=None):
+def download(url,limit=None,token=None):
     https(url);request=urllib.request.Request(url,headers={'User-Agent':'Framely-Plugin-Database/1'})
     token=token or os.environ.get('GITHUB_TOKEN')
     if urllib.parse.urlsplit(url).hostname=='api.github.com' and token:
         request.add_unredirected_header('Authorization','Bearer '+token)
     with urllib.request.build_opener(HTTPSRedirect).open(request,timeout=30) as response:
         https(response.geturl())
-        length=response.headers.get('Content-Length');require(length is None or 0<int(length)<=limit,'Package exceeds size limit')
-        data=response.read(limit+1);require(0<len(data)<=limit,'Package exceeds size limit')
+        length=response.headers.get('Content-Length');require(length is None or (int(length)>0 and (limit is None or int(length)<=limit)),'Download exceeds size limit')
+        data=response.read() if limit is None else response.read(limit+1);require(len(data)>0 and (limit is None or len(data)<=limit),'Download exceeds size limit')
         require(length is None or len(data)==int(length),'Truncated package download');return data
 
 def sha256_value(value):
@@ -219,13 +217,12 @@ def metadata(manifest):
     return value
 
 def verify_package(data,entry):
-    require(len(data)<=MAX_PACKAGE,'Package exceeds 64 MiB')
     import io
-    files={};expanded=0
+    files={}
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         require(len(archive.infolist())<=2049,'Too many ZIP members')
         for member in archive.infolist():
-            safe_path(member.filename);require(not member.is_dir() and stat.S_IFMT(member.external_attr>>16) not in (stat.S_IFLNK,stat.S_IFCHR,stat.S_IFBLK,stat.S_IFIFO,stat.S_IFSOCK),'Invalid ZIP member type');require(member.filename not in files,'Duplicate ZIP member');expanded+=member.file_size;require(expanded<=MAX_EXPANDED,'Expanded package exceeds 128 MiB');files[member.filename]=archive.read(member)
+            safe_path(member.filename);require(not member.is_dir() and stat.S_IFMT(member.external_attr>>16) not in (stat.S_IFLNK,stat.S_IFCHR,stat.S_IFBLK,stat.S_IFIFO,stat.S_IFSOCK),'Invalid ZIP member type');require(member.filename not in files,'Duplicate ZIP member');files[member.filename]=archive.read(member)
     raw=files.pop('manifest.json');require(len(raw)<=256*1024,'Manifest too large')
     manifest=object_json(raw)
     fields(manifest,MANIFEST_FIELDS,('schemaVersion','apiVersion','id','name','version','author','files','downloadUrl'))
