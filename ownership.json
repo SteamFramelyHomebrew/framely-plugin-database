@@ -8,6 +8,11 @@
       "repository": "toorux/framely-plugin-passthrough-color",
       "repositoryId": 1402700560,
       "ownerId": 68683363
+    },
+    "tooru.termix": {
+      "repository": "toorux/framely-plugin-termix",
+      "repositoryId": 1403961203,
+      "ownerId": 68683363
     }
   }
 }
