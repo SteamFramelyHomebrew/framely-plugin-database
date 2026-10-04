@@ -57,14 +57,14 @@ jobs:
           set -euo pipefail
           base_checkout="$RUNNER_TEMP/ownership-base"
           git worktree add --detach "$base_checkout" "$VALIDATED_BASE"
-          python3 scripts/database.py fetch --root "$base_checkout"
+          python3 scripts/database.py fetch --ownership-only --root "$base_checkout"
           roots=("$base_checkout")
           other=main
           if [[ "$TARGET_BRANCH" == main ]]; then other=testing; fi
           if git show-ref --verify --quiet "refs/remotes/origin/$other"; then
             other_checkout="$RUNNER_TEMP/ownership-other"
             git worktree add --detach "$other_checkout" "origin/$other"
-            python3 scripts/database.py fetch --root "$other_checkout"
+            python3 scripts/database.py fetch --ownership-only --root "$other_checkout"
             roots+=("$other_checkout")
           fi
           previous=()
