@@ -32,7 +32,7 @@ def text(value,limit,label,nonempty=False):
 def fields(value,allowed,required):
     require(isinstance(value,dict) and set(value)<=set(allowed) and set(required)<=set(value),'Missing or unknown object fields')
 
-MANIFEST_FIELDS=('schemaVersion','apiVersion','id','name','version','description','author','authorUrl','documentationUrl','homepage','icon','details','category','tags','screenshots','changelog','backend','lifecycle','dependencies','optionalDependencies','conflicts','exclusiveResources','ui','permissions','downloadUrl','publish','files')
+MANIFEST_FIELDS=('schemaVersion','apiVersion','id','name','version','description','author','authorUrl','documentationUrl','homepage','icon','details','category','tags','screenshots','changelog','backend','lifecycle','dependencies','optionalDependencies','conflicts','exclusiveResources','ui','downloadUrl','publish','files')
 
 def validate_lifecycle(manifest,hashed=None):
     backend=manifest.get('backend')
@@ -42,8 +42,8 @@ def validate_lifecycle(manifest,hashed=None):
     lifecycle=manifest.get('lifecycle')
     if lifecycle is None:return
     fields(lifecycle,('runAs','onInstall','onUpdate','onStart','onStop','onUninstall','onCrashCleanup','timeoutSeconds'),())
-    user=lifecycle.get('runAs');require(user is None or user in ('framely','steamos','root'),'Invalid hook identity')
-    require(backend is None or user is None or user==backend.get('runAs','framely'),'Hook/backend identity differs')
+    user=lifecycle.get('runAs');require(user is None or user in ('steamos','root'),'Invalid hook identity')
+    require(backend is None or user is None or user==backend.get('runAs','steamos'),'Hook/backend identity differs')
     timeout=lifecycle.get('timeoutSeconds',10);require(type(timeout) is int and 1<=timeout<=15,'Invalid hook timeout')
     for phase in ('onStart','onStop'):
         require(type(lifecycle.get(phase,False)) is bool,'Invalid backend hook flag')
@@ -122,7 +122,7 @@ def registrations(root):
         validate_lifecycle(manifest)
         validate_relations(manifest)
         ui=manifest.get('ui',{});fields(ui,('quickPage','windows'),())
-        for window in ui.get('windows',{}).values():fields(window,('entry','title','dockIcon'),('entry','title'))
+        for window in ui.get('windows',{}).values():fields(window,('entry','title','dockIcon','localWeb'),('entry','title'))
         if manifest.get('publish') is not None:fields(manifest['publish'],('icon','screenshots'),())
         identifier(manifest['id']);require(manifest['id'] not in seen,'Duplicate plugin ID');seen.add(manifest['id'])
         require(manifest['schemaVersion']==1 and manifest['apiVersion']==1,'Unsupported Framely API')
@@ -191,17 +191,16 @@ def metadata(manifest):
     # Normalize defaults emitted by the Rust packer before comparing declarations.
     value={key:manifest.get(key,default) for key,default in [('schemaVersion',1),('apiVersion',1),('id',''),('name',''),('version',''),('description',''),('author',''),('authorUrl',None),('documentationUrl',None),('homepage',None),('icon',None),('details',''),('tags',[]),('screenshots',[]),('changelog',''),('downloadUrl',None)]}
     backend=manifest.get('backend')
-    value['backend']=None if backend is None else {key:backend.get(key,default) for key,default in [('entry',''),('args',[]),('runAs','framely'),('autostart',False),('restart','on-failure'),('restartLimit',3)]}
+    value['backend']=None if backend is None else {key:backend.get(key,default) for key,default in [('entry',''),('args',[]),('runAs','steamos'),('autostart',False),('restart','on-failure'),('restartLimit',3)]}
     lifecycle=manifest.get('lifecycle')
     value['lifecycle']=None if lifecycle is None else {key:lifecycle.get(key,default) for key,default in [('runAs',None),('onStart',False),('onStop',False),('timeoutSeconds',10)]}
     if lifecycle is not None:
         for phase in ('onInstall','onUpdate','onUninstall','onCrashCleanup'):
             hook=lifecycle.get(phase);value['lifecycle'][phase]=None if hook is None else {'entry':hook['entry'],'args':hook.get('args',[])}
-    ui=manifest.get('ui',{});value['ui']={'quickPage':ui.get('quickPage'),'windows':{key:{field:window.get(field,default) for field,default in [('entry',''),('title',''),('dockIcon',False)]} for key,window in ui.get('windows',{}).items()}}
+    ui=manifest.get('ui',{});value['ui']={'quickPage':ui.get('quickPage'),'windows':{key:{field:window.get(field,default) for field,default in [('entry',''),('title',''),('dockIcon',False),('localWeb',False)]} for key,window in ui.get('windows',{}).items()}}
     publish=manifest.get('publish') or {};value['publish']={'icon':publish.get('icon'),'screenshots':publish.get('screenshots',[])}
     for field in ('dependencies','optionalDependencies','conflicts'):value[field]=manifest.get(field,{})
     value['exclusiveResources']=manifest.get('exclusiveResources',[])
-    value['permissions']=sorted(manifest.get('permissions',[]))
     return value
 
 def verify_package(data,entry):
@@ -230,15 +229,14 @@ def verify_package(data,entry):
     def hashed(path):safe_path(path);require(path in files,'Entry missing from payload')
     backend=manifest.get('backend')
     if backend is not None:
-        fields(backend,('entry','args','runAs','autostart','restart','restartLimit'),('entry',));hashed(backend['entry']);require(backend.get('runAs','framely') in ('framely','steamos','root'),'Invalid backend identity');require(isinstance(backend.get('autostart',False),bool),'Invalid autostart');args=backend.get('args',[]);require(isinstance(args,list) and len(args)<=64,'Invalid backend arguments')
+        fields(backend,('entry','args','runAs','autostart','restart','restartLimit'),('entry',));hashed(backend['entry']);require(backend.get('runAs','steamos') in ('steamos','root'),'Invalid backend identity');require(isinstance(backend.get('autostart',False),bool),'Invalid autostart');args=backend.get('args',[]);require(isinstance(args,list) and len(args)<=64,'Invalid backend arguments')
         for arg in args:text(arg,4096,'backend argument');require('\0' not in arg,'NUL backend argument')
     validate_lifecycle(manifest,hashed)
     validate_relations(manifest)
     ui=manifest.get('ui',{});fields(ui,('quickPage','windows'),());
     if ui.get('quickPage'):hashed(ui['quickPage'])
     windows=ui.get('windows',{});require(isinstance(windows,dict) and len(windows)<=8,'Invalid windows')
-    for key,window in windows.items():identifier(key);fields(window,('entry','title','dockIcon'),('entry','title'));hashed(window['entry']);text(window['title'],120,'window title',True);require(isinstance(window.get('dockIcon',False),bool),'Invalid dockIcon')
-    permissions=manifest.get('permissions',[]);require(isinstance(permissions,list) and all(p in ('network','windows','notifications') for p in permissions),'Invalid permissions')
+    for key,window in windows.items():identifier(key);fields(window,('entry','title','dockIcon','localWeb'),('entry','title'));hashed(window['entry']);text(window['title'],120,'window title',True);require(isinstance(window.get('dockIcon',False),bool),'Invalid dockIcon');require(isinstance(window.get('localWeb',False),bool),'Invalid localWeb')
     if manifest.get('icon'):
         icon=manifest['icon'];hashed(icon);image=files[icon];require(icon.endswith('.png') and 24<=len(image)<=1024*1024 and image.startswith(b'\x89PNG\r\n\x1a\n') and image[12:16]==b'IHDR','Invalid PNG icon');require(all(0<v<=1024 for v in struct.unpack('>II',image[16:24])),'Invalid icon dimensions')
     screenshots=manifest.get('screenshots',[]);require(isinstance(screenshots,list) and len(screenshots)<=8,'Too many screenshots')
@@ -296,14 +294,14 @@ def build(root,output,name='Framely Plugins',previous=None,report=None):
             item={key:manifest.get(key,default) for key,default in [('id',''),('name',''),('version',''),('description',''),('author',''),('authorUrl',None),('documentationUrl',None),('homepage',None),('apiVersion',1),('details',''),('tags',[]),('changelog','')]}
             for field in ('dependencies','optionalDependencies','conflicts','exclusiveResources'):item[field]=metadata(manifest)[field]
             publish=manifest.get('publish') or {}
-            item.update(url=entry['packageUrl'],sha256=digest,icon=published.get('icon') if published is not None else store_icon(entry,files),screenshots=publish.get('screenshots',[]),runAs=metadata(manifest)['backend']['runAs'] if manifest.get('backend') else (manifest.get('lifecycle') or {}).get('runAs'),permissions=manifest.get('permissions',[]))
+            item.update(url=entry['packageUrl'],sha256=digest,icon=published.get('icon') if published is not None else store_icon(entry,files),screenshots=publish.get('screenshots',[]),runAs=metadata(manifest)['backend']['runAs'] if manifest.get('backend') else (manifest.get('lifecycle') or {}).get('runAs'))
             catalog.append(item)
             current_plugins.append(item)
             archived=[p for p in history if p['id']==item['id'] and p['version']!=item['version']]
             catalog.extend(archived[:19])
-            current={key:item[key] for key in ('version','runAs','permissions')};before=None if prior is None else {key:prior.get(key) for key in current}
+            current={key:item[key] for key in ('version','runAs')};before=None if prior is None else {key:prior.get(key) for key in current}
             if current!=before:changes.append({'id':item['id'],'before':before,'after':current})
-        for identifier in sorted(set(old)-{p['id'] for p in catalog}):changes.append({'id':identifier,'before':{key:old[identifier].get(key) for key in ('version','runAs','permissions')},'after':None})
+        for identifier in sorted(set(old)-{p['id'] for p in catalog}):changes.append({'id':identifier,'before':{key:old[identifier].get(key) for key in ('version','runAs')},'after':None})
         require(len(catalog)<=1000,'Catalog exceeds 1000 version entries')
         encoded=json.dumps({'schemaVersion':1,'name':name,'plugins':catalog},ensure_ascii=False,indent=2)+'\n';require(len(encoded.encode())<=2*1024*1024,'Catalog exceeds Framely 2 MiB limit');(stage/'catalog.json').write_text(encoded)
         write_tags([{'plugins':current_plugins}],stage/'tags.json')

@@ -8,7 +8,7 @@ class Database(unittest.TestCase):
   self.release_digest=patch.object(db,'release_sha256',side_effect=lambda entry:hashlib.sha256(self.package(entry['manifest'])).hexdigest());self.release_digest.start();self.addCleanup(self.release_digest.stop)
  def tearDown(self):self.temp.cleanup()
  def manifest(self):
-  return {'schemaVersion':1,'apiVersion':1,'id':'test.plugin','name':'测试插件','author':'Tester','version':'1.0.0','details':'Description','category':'工具','backend':{'entry':'backend.py'},'permissions':['notifications'],'ui':{'quickPage':'page.js'},'files':{},'downloadUrl':URL,'publish':{'icon':'https://example.org/icon.png','screenshots':['https://example.org/screen.png']}}
+  return {'schemaVersion':1,'apiVersion':1,'id':'test.plugin','name':'测试插件','author':'Tester','version':'1.0.0','details':'Description','category':'工具','backend':{'entry':'backend.py'},'ui':{'quickPage':'page.js'},'files':{},'downloadUrl':URL,'publish':{'icon':'https://example.org/icon.png','screenshots':['https://example.org/screen.png']}}
  def register(self,manifest=None):
   manifest=manifest or self.manifest();source=self.root/'plugins/test';source.mkdir(parents=True,exist_ok=True)
   if not (source/'.git').exists():subprocess.run(['git','init','-q',str(source)],check=True)
@@ -56,14 +56,14 @@ class Database(unittest.TestCase):
  def test_pinned_manifest_not_working_tree_and_default_normalization(self):
   entry=self.register();(self.root/'plugins/test/manifest.json').write_text('{}')
   self.assertEqual(db.registrations(self.root)[0]['manifest'],entry['manifest'])
-  manifest=self.manifest();manifest['backend'].update(runAs='framely',autostart=False,args=[]);manifest['ui']['windows']={}
+  manifest=self.manifest();manifest['backend'].update(runAs='steamos',autostart=False,args=[]);manifest['ui']['windows']={}
   db.verify_package(self.package(manifest),entry)
  def test_catalog_uses_author_urls_and_never_copies_packages_or_images(self):
   entry=self.register();data=self.package();output=pathlib.Path(self.temp.name)/'site';report=pathlib.Path(self.temp.name)/'report.md'
   with patch.object(db,'download',return_value=data):self.assertEqual(db.build(self.root,output,report=report),1)
   self.assertEqual(sorted(p.name for p in output.iterdir()),['catalog.json','tags.json'])
   item=json.loads((output/'catalog.json').read_text())['plugins'][0]
-  self.assertEqual(item['url'],URL);self.assertEqual(item['sha256'],hashlib.sha256(data).hexdigest());self.assertEqual(item['icon'],'https://example.org/icon.png');self.assertEqual(item['runAs'],'framely');self.assertIn('notifications',report.read_text());self.assertNotIn('publicKey',item)
+  self.assertEqual(item['url'],URL);self.assertEqual(item['sha256'],hashlib.sha256(data).hexdigest());self.assertEqual(item['icon'],'https://example.org/icon.png');self.assertEqual(item['runAs'],'steamos');self.assertNotIn('permissions',item);self.assertNotIn('publicKey',item)
  def test_single_icon_config_emits_verified_immutable_repository_url(self):
   manifest=self.manifest();manifest.pop('publish');manifest['icon']='art/icon.png'
   entry=self.register(manifest)
@@ -78,7 +78,7 @@ class Database(unittest.TestCase):
   download.assert_any_call(expected,limit=1024*1024)
   with patch.object(db,'download',return_value=b'wrong'),self.assertRaises(ValueError):db.store_icon(entry,{'art/icon.png':image})
   with patch.object(db,'download',side_effect=urllib.error.HTTPError(expected,404,'Missing',None,None)),self.assertRaises(urllib.error.HTTPError):db.store_icon(entry,{'art/icon.png':image})
- def test_package_identity_permissions_and_all_metadata_must_match_source(self):
+ def test_package_identity_and_all_metadata_must_match_source(self):
   entry=self.register()
   for change in ({'id':'other.plugin'},{'version':'2.0.0'},{'permissions':['network']},{'backend':{'entry':'backend.py','runAs':'root'}},{'downloadUrl':'https://example.org/other.framely'},{'name':'Other'}):
    with self.subTest(change=change),self.assertRaises(ValueError):db.verify_package(self.package({**self.manifest(),**change}),entry)
