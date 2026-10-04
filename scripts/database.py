@@ -294,7 +294,7 @@ def build(root,output,name='Framely Plugins',previous=None,report=None):
             item={key:manifest.get(key,default) for key,default in [('id',''),('name',''),('version',''),('description',''),('author',''),('authorUrl',None),('documentationUrl',None),('homepage',None),('apiVersion',1),('details',''),('tags',[]),('changelog','')]}
             for field in ('dependencies','optionalDependencies','conflicts','exclusiveResources'):item[field]=metadata(manifest)[field]
             publish=manifest.get('publish') or {}
-            item.update(url=entry['packageUrl'],sha256=digest,icon=published.get('icon') if published is not None else store_icon(entry,files),screenshots=publish.get('screenshots',[]),runAs=metadata(manifest)['backend']['runAs'] if manifest.get('backend') else (manifest.get('lifecycle') or {}).get('runAs'))
+            item.update(url=entry['packageUrl'],sha256=digest,icon=published.get('icon') if published is not None else store_icon(entry,files),screenshots=publish.get('screenshots',[]),runAs=metadata(manifest)['backend']['runAs'] if manifest.get('backend') else ((manifest.get('lifecycle') or {}).get('runAs') or 'steamos'))
             catalog.append(item)
             current_plugins.append(item)
             archived=[p for p in history if p['id']==item['id'] and p['version']!=item['version']]
