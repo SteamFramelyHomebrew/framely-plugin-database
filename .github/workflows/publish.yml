@@ -37,11 +37,13 @@ jobs:
             git worktree add --detach "$checkout" "$ref"
             python3 scripts/database.py fetch --root "$checkout"
             if git show-ref --verify --quiet refs/remotes/origin/publish; then
-              git show "origin/publish:$channel/catalog.json" > "$RUNNER_TEMP/previous-$channel.json"
+              if [[ ! -d "$RUNNER_TEMP/previous-publish" ]]; then git worktree add --detach "$RUNNER_TEMP/previous-publish" origin/publish; fi
+              previous_catalog="$RUNNER_TEMP/previous-publish/$channel/catalog.json"
             else
-              printf '%s\n' '{"schemaVersion":1,"plugins":[]}' > "$RUNNER_TEMP/previous-$channel.json"
+              previous_catalog="$RUNNER_TEMP/previous-$channel.json"
+              printf '%s\n' '{"schemaVersion":1,"plugins":[]}' > "$previous_catalog"
             fi
-            python3 scripts/database.py build --root "$checkout" --output "$destination/$channel" --name "Framely Plugins · $channel" --previous-catalog "$RUNNER_TEMP/previous-$channel.json" --report "$RUNNER_TEMP/changes-$channel.md"
+            python3 scripts/database.py build --root "$checkout" --output "$destination/$channel" --name "Framely Plugins · $channel" --previous-catalog "$previous_catalog" --report "$RUNNER_TEMP/changes-$channel.md"
             cat "$RUNNER_TEMP/changes-$channel.md" >> "$GITHUB_STEP_SUMMARY"
           done
       - name: Preserve namespace and repository ownership
@@ -84,13 +86,11 @@ jobs:
           else
             git switch --orphan publish
           fi
-          mkdir -p stable testing
-          cp "$RUNNER_TEMP/framely-catalogs/stable/catalog.json" stable/catalog.json
-          cp "$RUNNER_TEMP/framely-catalogs/testing/catalog.json" testing/catalog.json
-          cp "$RUNNER_TEMP/framely-catalogs/stable/tags.json" stable/tags.json
-          cp "$RUNNER_TEMP/framely-catalogs/testing/tags.json" testing/tags.json
+          rm -rf stable testing
+          cp -R "$RUNNER_TEMP/framely-catalogs/stable" stable
+          cp -R "$RUNNER_TEMP/framely-catalogs/testing" testing
           cp "$RUNNER_TEMP/framely-catalogs/ownership.json" ownership.json
-          git add stable/catalog.json testing/catalog.json stable/tags.json testing/tags.json ownership.json
+          git add -A stable testing ownership.json
           if git diff --cached --quiet; then
             echo 'Catalogs are unchanged.'
             exit 0

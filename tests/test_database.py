@@ -78,7 +78,7 @@ class Database(unittest.TestCase):
  def test_catalog_uses_author_urls_and_never_copies_packages_or_images(self):
   entry=self.register();data=self.package();output=pathlib.Path(self.temp.name)/'site';report=pathlib.Path(self.temp.name)/'report.md'
   with patch.object(db,'download',return_value=data):self.assertEqual(db.build(self.root,output,report=report),1)
-  self.assertEqual(sorted(p.name for p in output.iterdir()),['catalog.json','tags.json'])
+  self.assertEqual(sorted(p.name for p in output.iterdir()),['catalog.json','plugins','tags.json'])
   item=json.loads((output/'catalog.json').read_text())['plugins'][0]
   self.assertEqual(item['url'],URL);self.assertEqual(item['sha256'],hashlib.sha256(data).hexdigest());self.assertEqual(item['icon'],'https://example.org/icon.png');self.assertEqual(item['runAs'],'steamos');self.assertNotIn('permissions',item);self.assertNotIn('publicKey',item)
  def test_single_icon_config_emits_verified_immutable_repository_url(self):
@@ -163,18 +163,37 @@ class Database(unittest.TestCase):
   self.assertEqual(json.loads((output/'tags.json').read_text())['tags'],['工具','温控'])
   self.assertNotIn('category',json.loads((output/'catalog.json').read_text())['plugins'][0])
 
+ def test_catalog_drops_incompatible_history_without_rewriting_packages(self):
+  manifest=self.manifest();self.register(manifest);old=pathlib.Path(self.temp.name)/'old'
+  with patch.object(db,'download',return_value=self.package(manifest)):db.build(self.root,old)
+  previous=old/'catalog.json';catalog=json.loads(previous.read_text());current=catalog['plugins'][0]
+  catalog['plugins']=[{**current,'permissions':[]},{**current,'version':'0.9.0','permissions':[]},{**current,'version':'0.8.0','runAs':'framely'},{**current,'version':'0.7.0','permissions':['windows']},{**current,'version':'0.6.0','runAs':'root'}]
+  previous.write_text(json.dumps(catalog));output=pathlib.Path(self.temp.name)/'new'
+  with patch.object(db,'download',return_value=self.package(manifest)):db.build(self.root,output,previous=previous)
+  entries=json.loads((output/'catalog.json').read_text())['plugins']
+  history=json.loads((output/'plugins/test.plugin/versions.json').read_text())['versions']
+  self.assertEqual([p['version'] for p in entries],['1.0.0'])
+  self.assertEqual([p['version'] for p in history],['0.6.0'])
+  self.assertTrue(all(set(p)<=db.CATALOG_FIELDS for p in entries))
+  self.assertEqual(history[0],catalog['plugins'][-1])
+  # Cleanup must not bypass the immutable version/digest check.
+  catalog['plugins'][0]['sha256']='0'*64;previous.write_text(json.dumps(catalog))
+  with patch.object(db,'download',return_value=self.package(manifest)),self.assertRaisesRegex(ValueError,'Published version changed'):
+   db.build(self.root,pathlib.Path(self.temp.name)/'changed',previous=previous)
  def test_catalog_keeps_version_choices_and_drops_removed_plugins(self):
   initial=self.manifest();initial['tags']=['工具','旧标签'];self.register(initial);old=pathlib.Path(self.temp.name)/'v1'
   with patch.object(db,'download',return_value=self.package(initial)):db.build(self.root,old)
   manifest=self.manifest();manifest['version']='2.0.0';manifest['tags']=['工具','新标签'];manifest['downloadUrl']=URL.replace('v1.0.0','v2.0.0');self.register(manifest)
   new=pathlib.Path(self.temp.name)/'v2'
   with patch.object(db,'download',return_value=self.package(manifest)):db.build(self.root,new,previous=old/'catalog.json')
-  entries=json.loads((new/'catalog.json').read_text())['plugins'];self.assertEqual([p['version'] for p in entries],['2.0.0','1.0.0']);self.assertEqual(entries[1]['url'],URL)
-  self.assertEqual(entries[1]['tags'],initial['tags'])
+  entries=json.loads((new/'catalog.json').read_text())['plugins'];self.assertEqual([p['version'] for p in entries],['2.0.0'])
+  history=json.loads((new/'plugins/test.plugin/versions.json').read_text())['versions'];self.assertEqual([p['version'] for p in history],['1.0.0']);self.assertEqual(history[0]['url'],URL)
+  self.assertEqual(history[0]['tags'],initial['tags'])
   self.assertEqual(json.loads((new/'tags.json').read_text())['tags'],['工具','新标签'])
   again=pathlib.Path(self.temp.name)/'again'
   with patch.object(db,'download',return_value=self.package(manifest)):db.build(self.root,again,previous=new/'catalog.json')
-  self.assertEqual(len(json.loads((again/'catalog.json').read_text())['plugins']),2)
+  self.assertEqual(len(json.loads((again/'catalog.json').read_text())['plugins']),1)
+  self.assertEqual(json.loads((again/'plugins/test.plugin/versions.json').read_text())['versions'],history)
   self.assertEqual(json.loads((again/'tags.json').read_text())['tags'],['工具','新标签'])
   # An archived version remains immutable even after it stops being the default.
   subprocess.run(['git','-C',str(self.root),'update-index','--force-remove','plugins/test'],check=True);(self.root/'.gitmodules').unlink()
