@@ -163,6 +163,21 @@ class Database(unittest.TestCase):
   self.assertEqual(json.loads((output/'tags.json').read_text())['tags'],['工具','温控'])
   self.assertNotIn('category',json.loads((output/'catalog.json').read_text())['plugins'][0])
 
+ def test_catalog_drops_incompatible_history_without_rewriting_packages(self):
+  manifest=self.manifest();self.register(manifest);old=pathlib.Path(self.temp.name)/'old'
+  with patch.object(db,'download',return_value=self.package(manifest)):db.build(self.root,old)
+  previous=old/'catalog.json';catalog=json.loads(previous.read_text());current=catalog['plugins'][0]
+  catalog['plugins']=[{**current,'permissions':[]},{**current,'version':'0.9.0','permissions':[]},{**current,'version':'0.8.0','runAs':'framely'},{**current,'version':'0.7.0','unknown':True},{**current,'version':'0.6.0','runAs':'root'}]
+  previous.write_text(json.dumps(catalog));output=pathlib.Path(self.temp.name)/'new'
+  with patch.object(db,'download',return_value=self.package(manifest)):db.build(self.root,output,previous=previous)
+  entries=json.loads((output/'catalog.json').read_text())['plugins']
+  self.assertEqual([p['version'] for p in entries],['1.0.0','0.6.0'])
+  self.assertTrue(all(set(p)<=db.CATALOG_FIELDS for p in entries))
+  self.assertEqual(entries[1],catalog['plugins'][-1])
+  # Cleanup must not bypass the immutable version/digest check.
+  catalog['plugins'][0]['sha256']='0'*64;previous.write_text(json.dumps(catalog))
+  with patch.object(db,'download',return_value=self.package(manifest)),self.assertRaisesRegex(ValueError,'Published version changed'):
+   db.build(self.root,pathlib.Path(self.temp.name)/'changed',previous=previous)
  def test_catalog_keeps_version_choices_and_drops_removed_plugins(self):
   initial=self.manifest();initial['tags']=['工具','旧标签'];self.register(initial);old=pathlib.Path(self.temp.name)/'v1'
   with patch.object(db,'download',return_value=self.package(initial)):db.build(self.root,old)
