@@ -297,6 +297,16 @@ def store_icon(entry,files):
 def build(root,output,name='Framely Plugins',previous=None,report=None):
     root=pathlib.Path(root).resolve();output=pathlib.Path(output).absolute();require(not output.exists(),'Output directory already exists');require(root not in output.parents and root!=output,'Output must be outside source checkout')
     entries=registrations(root);history=[] if previous is None else object_json(pathlib.Path(previous).read_bytes())['plugins'];old={};seen=set()
+    if previous is not None:
+        previous_root=pathlib.Path(previous).parent
+        for plugin_id in {p['id'] for p in history}:
+            identifier(plugin_id)
+            versions_path=previous_root/'plugins'/plugin_id/'versions.json'
+            if versions_path.exists():
+                document=object_json(versions_path.read_bytes())
+                require(document.get('schemaVersion')==1 and document.get('id')==plugin_id,'Invalid plugin history')
+                require(all(p['id']==plugin_id for p in document['versions']),'History plugin ID mismatch')
+                history.extend(document['versions'])
     for item in history:
         pair=(item['id'],item['version']);require(pair not in seen,'Duplicate catalog version');seen.add(pair);old.setdefault(item['id'],item)
     output.parent.mkdir(parents=True,exist_ok=True)
@@ -312,12 +322,13 @@ def build(root,output,name='Framely Plugins',previous=None,report=None):
             item.update(url=entry['packageUrl'],sha256=digest,icon=published.get('icon') if published is not None else store_icon(entry,files),screenshots=publish.get('screenshots',[]),runAs=metadata(manifest)['backend']['runAs'] if manifest.get('backend') else ((manifest.get('lifecycle') or {}).get('runAs') or 'steamos'))
             catalog.append(item)
             current_plugins.append(item)
-            archived=[p for p in history if p['id']==item['id'] and p['version']!=item['version'] and set(p)<=CATALOG_FIELDS and p.get('runAs') in ('steamos','root')]
-            catalog.extend(archived[:19])
+            archived=[p for p in history if p['id']==item['id'] and p['version']!=item['version'] and 'permissions' not in p and p.get('runAs') in ('steamos','root')]
+            history_dir=stage/'plugins'/item['id'];history_dir.mkdir(parents=True)
+            (history_dir/'versions.json').write_text(json.dumps({'schemaVersion':1,'id':item['id'],'versions':archived[:19]},ensure_ascii=False,indent=2)+'\n')
             current={key:item[key] for key in ('version','runAs')};before=None if prior is None else {key:prior.get(key) for key in current}
             if current!=before:changes.append({'id':item['id'],'before':before,'after':current})
-        for identifier in sorted(set(old)-{p['id'] for p in catalog}):changes.append({'id':identifier,'before':{key:old[identifier].get(key) for key in ('version','runAs')},'after':None})
-        require(len(catalog)<=1000,'Catalog exceeds 1000 version entries')
+        for removed_id in sorted(set(old)-{p['id'] for p in catalog}):changes.append({'id':removed_id,'before':{key:old[removed_id].get(key) for key in ('version','runAs')},'after':None})
+        require(len(catalog)<=1000,'Catalog exceeds 1000 plugins')
         encoded=json.dumps({'schemaVersion':1,'name':name,'plugins':catalog},ensure_ascii=False,indent=2)+'\n';require(len(encoded.encode())<=2*1024*1024,'Catalog exceeds Framely 2 MiB limit');(stage/'catalog.json').write_text(encoded)
         write_tags([{'plugins':current_plugins}],stage/'tags.json')
         if report is not None:pathlib.Path(report).write_text('### 插件版本与运行用户变化\n\n```json\n'+json.dumps(changes,ensure_ascii=False,indent=2)+'\n```\n')

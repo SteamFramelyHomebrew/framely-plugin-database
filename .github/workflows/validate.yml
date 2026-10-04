@@ -29,9 +29,11 @@ jobs:
           channel=testing
           if [[ $TARGET_BRANCH == main ]]; then channel=stable; fi
           if git show-ref --verify --quiet refs/remotes/origin/publish; then
-            git show "origin/publish:$channel/catalog.json" > "$RUNNER_TEMP/previous.json"
+            git worktree add --detach "$RUNNER_TEMP/previous-publish" origin/publish
+            previous_catalog="$RUNNER_TEMP/previous-publish/$channel/catalog.json"
           else
-            printf '%s\n' '{"schemaVersion":1,"plugins":[]}' > "$RUNNER_TEMP/previous.json"
+            previous_catalog="$RUNNER_TEMP/previous.json"
+            printf '%s\n' '{"schemaVersion":1,"plugins":[]}' > "$previous_catalog"
           fi
-          python3 scripts/database.py build --output "$RUNNER_TEMP/validated-catalog" --previous-catalog "$RUNNER_TEMP/previous.json" --report "$RUNNER_TEMP/changes.md"
+          python3 scripts/database.py build --output "$RUNNER_TEMP/validated-catalog" --previous-catalog "$previous_catalog" --report "$RUNNER_TEMP/changes.md"
           cat "$RUNNER_TEMP/changes.md" >> "$GITHUB_STEP_SUMMARY"
