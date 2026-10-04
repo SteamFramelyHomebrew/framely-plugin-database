@@ -24,6 +24,13 @@ class Database(unittest.TestCase):
    archive.writestr(zipfile.ZipInfo('manifest.json'),json.dumps(manifest))
    for name,data in payload.items():archive.writestr(zipfile.ZipInfo(name),data)
   return buffer.getvalue()
+ def test_large_offline_package_exceeding_old_download_and_expanded_limits(self):
+  entry=self.register()
+  payload={'page.js':b'page','backend.py':b'backend','runtime.bin':b'\0'*(129*1024*1024)}
+  data=self.package(payload=payload)
+  manifest,files=db.verify_package(data,entry)
+  self.assertEqual(manifest['id'],'test.plugin')
+  self.assertEqual(len(files['runtime.bin']),129*1024*1024)
  def test_ownership_reads_old_pinned_identity_without_accepting_old_manifest(self):
   self.register()
   source=self.root/'plugins/test';renamed=self.root/'plugins/test.plugin';source.rename(renamed)
