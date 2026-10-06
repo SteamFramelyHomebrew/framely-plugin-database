@@ -4,3 +4,6 @@
 [submodule "plugins/tooru.termix"]
 	path = plugins/tooru.termix
 	url = https://github.com/toorux/framely-plugin-termix.git
+[submodule "plugins/tooru.zashboard"]
+	path = plugins/tooru.zashboard
+	url = https://github.com/toorux/framely-plugin-zashboard.git
