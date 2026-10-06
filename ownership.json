@@ -13,6 +13,11 @@
       "repository": "toorux/framely-plugin-termix",
       "repositoryId": 1403961203,
       "ownerId": 68683363
+    },
+    "tooru.zashboard": {
+      "repository": "toorux/framely-plugin-zashboard",
+      "repositoryId": 1407206562,
+      "ownerId": 68683363
     }
   }
 }
