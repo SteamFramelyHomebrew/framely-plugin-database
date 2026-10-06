@@ -1,5 +1,36 @@
 {
   "schemaVersion": 1,
   "id": "tooru.zashboard",
-  "versions": []
+  "versions": [
+    {
+      "id": "tooru.zashboard",
+      "name": "zashboard",
+      "version": "0.1.0-preview.16",
+      "description": "在 Steam Frame 上使用 Mihomo 代理与 zashboard 管理面板。",
+      "author": "tooru",
+      "authorUrl": "https://github.com/toorux",
+      "documentationUrl": null,
+      "homepage": "https://github.com/toorux/framely-plugin-zashboard",
+      "apiVersion": 1,
+      "details": "离线内置 ARM64 Mihomo 与 zashboard。支持 Clash YAML 导入、HTTPS 订阅更新、规则/全局/直连模式和节点选择；首次安装默认关闭 TUN，局域网和组播流量绕过代理。root 后端通过 Framely 生命周期及独立守护进程管理内核。",
+      "tags": [
+        "网络",
+        "代理",
+        "工具"
+      ],
+      "changelog": "统一源码仓库与安装包中的图标路径，修复插件商店生成目录时下载图标返回 404 的问题。",
+      "dependencies": {},
+      "optionalDependencies": {},
+      "conflicts": {},
+      "exclusiveResources": [
+        "framely-zashboard.tun",
+        "framely-clash.tun"
+      ],
+      "url": "https://github.com/toorux/framely-plugin-zashboard/releases/download/v0.1.0-preview.16/tooru.zashboard-0.1.0-preview.16.framely",
+      "sha256": "1ca4faa423b2eb2370a3ffe958b567e09a2fe0eb20becdc68e279e8cef3b5184",
+      "icon": "https://raw.githubusercontent.com/toorux/framely-plugin-zashboard/f25a5375706478e5cbaebf1d15ec78020a48104d/icon.png",
+      "screenshots": [],
+      "runAs": "root"
+    }
+  ]
 }

@@ -5,7 +5,7 @@
     {
       "id": "tooru.passthrough-color",
       "name": "透视调色",
-      "version": "0.1.4-preview.9",
+      "version": "0.1.4-preview.10",
       "description": "切换透视模式，调整彩色透视亮度、饱和度与冷暖，以及黑白透视染色。",
       "author": "tooru",
       "authorUrl": null,
@@ -18,14 +18,14 @@
         "色调",
         "黑白"
       ],
-      "changelog": "新增关闭透视、彩色透视、黑白透视按钮组及系统模式同步；新增彩色亮度、逐像素饱和度和冷暖长条，独立保存两套参数，保留原黑白调色与色轮图标。彩色 GPU 效果待新版模块首次加载验证。",
+      "changelog": "移除 SteamVR 整机哈希白名单和固定方法地址，按相机接口、上传布局与 shader 结构分别检测。兼容无关更新、代码地址移动及 shader ID 重编号；检测失败只停用对应功能，保留模式切换与黑白色相的独立可用性。",
       "dependencies": {},
       "optionalDependencies": {},
       "conflicts": {},
       "exclusiveResources": [],
-      "url": "https://github.com/toorux/framely-plugin-passthrough-color/releases/download/v0.1.4-preview.9/tooru.passthrough-color-0.1.4-preview.9.framely",
-      "sha256": "f32b11638a1298436b56b8adfbf6cd63f55b25885c7aaae6571fc5faa0fd8863",
-      "icon": "https://raw.githubusercontent.com/toorux/framely-plugin-passthrough-color/36b6f563d8b0a083b43baf51345aa9c1e880862e/icon.png",
+      "url": "https://github.com/toorux/framely-plugin-passthrough-color/releases/download/v0.1.4-preview.10/tooru.passthrough-color-0.1.4-preview.10.framely",
+      "sha256": "c4981fb6b47d928603d3ec4e6233c39caff7bcb47a15191b2bbda5c52044256f",
+      "icon": "https://raw.githubusercontent.com/toorux/framely-plugin-passthrough-color/c65c45fe324a606a77aea8c8d374efc69f45b504/icon.png",
       "screenshots": [],
       "runAs": "steamos"
     },
@@ -59,7 +59,7 @@
     {
       "id": "tooru.zashboard",
       "name": "zashboard",
-      "version": "0.1.0-preview.16",
+      "version": "0.1.1-preview.1",
       "description": "在 Steam Frame 上使用 Mihomo 代理与 zashboard 管理面板。",
       "author": "tooru",
       "authorUrl": "https://github.com/toorux",
@@ -72,7 +72,7 @@
         "代理",
         "工具"
       ],
-      "changelog": "统一源码仓库与安装包中的图标路径，修复插件商店生成目录时下载图标返回 404 的问题。",
+      "changelog": "快捷面板新增启动时自动开启代理开关；设置保存到本机，开启后每次启动插件自动启用 TUN 代理，未导入配置时保持关闭。",
       "dependencies": {},
       "optionalDependencies": {},
       "conflicts": {},
@@ -80,9 +80,9 @@
         "framely-zashboard.tun",
         "framely-clash.tun"
       ],
-      "url": "https://github.com/toorux/framely-plugin-zashboard/releases/download/v0.1.0-preview.16/tooru.zashboard-0.1.0-preview.16.framely",
-      "sha256": "1ca4faa423b2eb2370a3ffe958b567e09a2fe0eb20becdc68e279e8cef3b5184",
-      "icon": "https://raw.githubusercontent.com/toorux/framely-plugin-zashboard/f25a5375706478e5cbaebf1d15ec78020a48104d/icon.png",
+      "url": "https://github.com/toorux/framely-plugin-zashboard/releases/download/v0.1.1-preview.1/tooru.zashboard-0.1.1-preview.1.framely",
+      "sha256": "98acee2a248a096d740fcbf566bc0e54faf9eba3ea1813ac44dd5d79c9ef1938",
+      "icon": "https://raw.githubusercontent.com/toorux/framely-plugin-zashboard/0a755fd9a6b56ce6095f93af35cb94034d174041/icon.png",
       "screenshots": [],
       "runAs": "root"
     }
