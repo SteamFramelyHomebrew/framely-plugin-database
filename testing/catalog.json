@@ -59,7 +59,7 @@
     {
       "id": "tooru.volume-mixer",
       "name": "Frame 音量合成器",
-      "version": "0.2.10-preview.1",
+      "version": "0.2.10-preview.2",
       "description": "按进程调节播放音量与静音，支持 PipeWire 和 PulseAudio 应用。",
       "author": "tooru",
       "authorUrl": null,
@@ -72,14 +72,14 @@
         "音量",
         "混音"
       ],
-      "changelog": "预览版：透明背景、无边框应用图标及紧凑音量控制；仅版本标签触发 ARM64 构建、发布和数据库登记。",
+      "changelog": "新增全局及每应用后台静音开关，支持 Gamescope、SteamVR 和 X11/KDE Wayland 焦点；记忆应用音量、手动静音及独立开关，退出重开继续生效。",
       "dependencies": {},
       "optionalDependencies": {},
       "conflicts": {},
       "exclusiveResources": [],
-      "url": "https://github.com/toorux/framely-plugin-frame-volume-mixer/releases/download/v0.2.10-preview.1/tooru.volume-mixer-0.2.10-preview.1.framely",
-      "sha256": "ba3e416e3b04e92ab216b10defb2cd708b39c231cc9f3691a9c8a3682437e47d",
-      "icon": "https://raw.githubusercontent.com/toorux/framely-plugin-frame-volume-mixer/25f9a565d1ef91d78fedd92c8e7eac23105ea0fd/icon.png",
+      "url": "https://github.com/toorux/framely-plugin-frame-volume-mixer/releases/download/v0.2.10-preview.2/tooru.volume-mixer-0.2.10-preview.2.framely",
+      "sha256": "1a30de017f58367329668c4b774a0d0da7aa38ade30573e85641ac8aa6a0db4c",
+      "icon": "https://raw.githubusercontent.com/toorux/framely-plugin-frame-volume-mixer/4849b05ceafa10abf84d4680718ceedd086e65ba/icon.png",
       "screenshots": [],
       "runAs": "steamos"
     },
