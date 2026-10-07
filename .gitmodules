@@ -7,3 +7,6 @@
 [submodule "plugins/tooru.zashboard"]
 	path = plugins/tooru.zashboard
 	url = https://github.com/toorux/framely-plugin-zashboard.git
+[submodule "plugins/tooru.volume-mixer"]
+	path = plugins/tooru.volume-mixer
+	url = https://github.com/toorux/framely-plugin-frame-volume-mixer.git
