@@ -1,7 +1,8 @@
 {
   "schemaVersion": 1,
   "namespaces": {
-    "tooru": 68683363
+    "tooru": 68683363,
+    "dhies23": 99380868
   },
   "plugins": {
     "tooru.passthrough-color": {
@@ -23,6 +24,11 @@
       "repository": "toorux/framely-plugin-frame-volume-mixer",
       "repositoryId": 1408567292,
       "ownerId": 68683363
+    },
+    "dhies23.frame-fan-panel": {
+      "repository": "dhies23/framely-plugin-frame-fan-panel",
+      "repositoryId": 1413528877,
+      "ownerId": 99380868
     }
   }
 }
