@@ -10,3 +10,6 @@
 [submodule "plugins/tooru.volume-mixer"]
 	path = plugins/tooru.volume-mixer
 	url = https://github.com/toorux/framely-plugin-frame-volume-mixer.git
+[submodule "plugins/dhies23.frame-fan-panel"]
+	path = plugins/dhies23.frame-fan-panel
+	url = https://github.com/dhies23/framely-plugin-frame-fan-panel.git
